@@ -118,5 +118,3 @@ Note: `package.json` currently specifies Node `21.7.1` in `engines`. Use an appr
 2. Tune heuristics and thresholds; expose more config knobs if desired.
 3. Add a `--dry-run` or verbose debug mode to surface all suppressed annotations for authors.
 4. Finalize documentation for contributors describing how to add new detectors and tests.
-
-If you want, I can scaffold the unit tests next (Jest or Vitest), add CI workflow, or prepare a release PR. Which should I do?
