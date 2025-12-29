@@ -1,6 +1,7 @@
 import {ReactElement} from "react";
 import {StageBase, StageResponse, InitialData, Message} from "@chub-ai/stages-ts";
 import {LoadResponse} from "@chub-ai/stages-ts/dist/types/load";
+import {DEFAULT_CONFIG, normalizeConfig, NormalizedConfig} from "./config_schema";
 
 /***
  The type that this stage persists message-level state in.
@@ -83,11 +84,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
      but exists as long as the instance does, i.e., the chat page is open.
      ***/
     myInternalState: MessageStateType;
-    defaultConfig: Required<ConfigType> = {
-        enabled: true,
-        strictness: 2,
-        memory_depth: 15,
-    } as Required<ConfigType>;
+    defaultConfig: NormalizedConfig = {...DEFAULT_CONFIG};
 
     constructor(data: InitialData<InitStateType, ChatStateType, MessageStateType, ConfigType>) {
         /***
@@ -108,7 +105,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
             chatState
         } = data;
         // Null-safe config handling
-        const mergedConfig: Required<ConfigType> = Object.assign({}, this.defaultConfig, config || {});
+        const mergedConfig: NormalizedConfig = normalizeConfig(config);
 
         // Initialize internal message state with safe defaults and any persisted state
         this.myInternalState = messageState != null ? messageState : {
@@ -170,6 +167,18 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
          This is called after someone presses 'send', but before anything is sent to the LLM.
          ***/
         const {content, anonymizedId, isBot} = userMessage;
+        const effectiveConfig = (this as any)._effectiveConfig || this.defaultConfig;
+        if (!effectiveConfig.enabled) {
+            const currentChatState: ChatStateType | null = (this as any)._chatState || null;
+            return {
+                stageDirections: null,
+                messageState: {...this.myInternalState},
+                modifiedMessage: null,
+                systemMessage: null,
+                error: null,
+                chatState: currentChatState || null,
+            };
+        }
         // Scene Carryover Anchor: attach concise system summary when scene is present
         const currentChatState: ChatStateType | null = (this as any)._chatState || null;
         let systemMessage: string | null = null;
@@ -194,10 +203,22 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
          This is called immediately after a response from the LLM.
          ***/
         const {content, anonymizedId, isBot} = botMessage;
+        const effectiveConfig = (this as any)._effectiveConfig || this.defaultConfig;
+        if (!effectiveConfig.enabled) {
+            return {
+                stageDirections: null,
+                messageState: this.myInternalState,
+                modifiedMessage: null,
+                error: null,
+                systemMessage: null,
+                chatState: (this as any)._chatState || null
+            };
+        }
+        const turnIndex = (this.myInternalState.turnIndex || 0) + 1;
+        this.myInternalState.turnIndex = turnIndex;
         // Run lightweight analysis hooks (placeholders) that will be expanded later.
         const snapshot: EmotionSnapshot = this.extractEmotionSnapshot(content);
-        // append to lastEmotions keeping small buffer
-        this.myInternalState.lastEmotions = (this.myInternalState.lastEmotions || []).concat(snapshot).slice(-5);
+        const priorEmotions = (this.myInternalState.lastEmotions || []);
 
         // Example: detect a 'scar' keyword and append to memoryScars (append-only, trimmed by memory_depth)
         if (/confess|betray|reject|rejects|rejected/i.test(content)) {
@@ -257,23 +278,25 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         }
 
         // Emotional delta evaluation: detect whiplash and optionally attach a user-visible system note.
-        const effectiveConfig = (this as any)._effectiveConfig || this.defaultConfig;
         let systemMessage: string | null = null;
-        const delta = this.evaluateEmotionalDelta(snapshot, this.myInternalState.lastEmotions || []);
+        const delta = this.evaluateEmotionalDelta(snapshot, priorEmotions);
         if (delta.detected && effectiveConfig.enabled) {
             // annotation frequency control: strictness 1..3 -> allowed annotations per window
             const s = typeof effectiveConfig.strictness === 'number' ? Math.floor(effectiveConfig.strictness) : 2;
             const allowedByStrictness = ({1: 1, 2: 2, 3: 3} as Record<number, number>)[s] || 2;
             this.myInternalState.lastAnnotations = this.myInternalState.lastAnnotations || [];
             // count recent annotations in last 20 messages (approx)
-            const recentCount = this.myInternalState.lastAnnotations.length;
+            const recentCount = this.myInternalState.lastAnnotations.filter((idx: number) => idx > turnIndex - 20).length;
             if (recentCount < allowedByStrictness) {
                 systemMessage = `System note: abrupt emotional shift detected (${delta.summary}). Consider adding a transitional cue.`;
-                this.myInternalState.lastAnnotations.push(Date.now());
+                this.myInternalState.lastAnnotations.push(turnIndex);
                 // cap size of annotations history
                 this.myInternalState.lastAnnotations = this.myInternalState.lastAnnotations.slice(-20);
             }
         }
+
+        // append to lastEmotions keeping small buffer after detection
+        this.myInternalState.lastEmotions = priorEmotions.concat(snapshot).slice(-5);
 
         // Merge escalation warning into systemMessage (do not overwrite existing note if present)
         if (escalationWarning) {

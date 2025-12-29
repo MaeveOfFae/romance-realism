@@ -4,13 +4,19 @@
  */
 
 export type ConfigSchema = {
-    enabled?: boolean | null;
-    strictness?: number | null; // 1..3
-    memory_depth?: number | null; // 5..30
+    enabled?: boolean;
+    strictness?: number; // 1..3
+    memory_depth?: number; // 5..30
     [key: string]: any;
 };
 
-export const DEFAULT_CONFIG = {
+export type NormalizedConfig = Omit<ConfigSchema, 'enabled' | 'strictness' | 'memory_depth'> & {
+    enabled: boolean;
+    strictness: number;
+    memory_depth: number;
+};
+
+export const DEFAULT_CONFIG: NormalizedConfig = {
     enabled: true,
     strictness: 2,
     memory_depth: 15,
@@ -26,7 +32,7 @@ function clamp(n: number, min: number, max: number): number {
  * - Treats missing or null fields as absent and substitutes defaults.
  * - Clamps `strictness` to [1,3] and `memory_depth` to [5,30].
  */
-export function normalizeConfig(cfg?: ConfigSchema | null) {
+export function normalizeConfig(cfg?: ConfigSchema | null): NormalizedConfig {
     const src = cfg || {};
     const enabled = typeof src.enabled === 'boolean' ? src.enabled : DEFAULT_CONFIG.enabled;
     const strictness = (typeof src.strictness === 'number')
@@ -45,7 +51,7 @@ export function normalizeConfig(cfg?: ConfigSchema | null) {
             if (!['enabled', 'strictness', 'memory_depth'].includes(k)) acc[k] = (src as any)[k];
             return acc;
         }, {}),
-    } as Required<ConfigSchema>;
+    };
 }
 
 /**
