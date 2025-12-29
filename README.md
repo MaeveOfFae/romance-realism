@@ -16,6 +16,13 @@ Key goals:
 
 Background-only realism guardrails for slow-burn romance roleplay. This Stage runs quietly alongside a chat and emits concise, user-visible system notes to help keep long-form roleplay emotionally coherent and slow-burning without rewriting or blocking user content.
 
+**Current status (2025-12-29)**
+
+- Core heuristics and features implemented (emotion snapshots, delta detection, scene carryover, phase & proximity gates, consent checks, memory scars, subtext, silence interpreter, drift detector).
+- Type-check and production build succeed locally (`yarn tsc --noEmit` and `yarn build`).
+- Unit tests added (dependency-free, Node `node:test`) — run with `yarn test`.
+- Read-only developer overlay added for local dev (toggle in the dev runner settings menu).
+
 Summary of implemented features (status):
 
 - Stage skeleton & lifecycle wiring — completed
@@ -36,9 +43,13 @@ Estimated completeness: core feature set implemented ~95% — remaining work is 
 ## Files of interest
 
 - `src/Stage.tsx` — stage implementation and lifecycle hooks (`load`, `beforePrompt`, `afterResponse`, `setState`). All heuristics and state models live here.
+- `src/analysis_helpers.ts` — extracted, unit-testable heuristic helpers (emotion snapshot, delta evaluation, escalation signals).
 - `src/config_schema.ts` — null-safe config schema and `normalizeConfig` helper.
 - `public/chub_meta.yaml` — stage metadata (name, tagline, tags, visibility, position).
 - `src/TestRunner.tsx` — local development runner used in dev mode.
+- `src/DeveloperUI.tsx` — read-only developer overlay panel (dev runner only).
+- `tests/*.test.ts` — unit tests (compiled to `.test-dist/` by `yarn test`).
+- `tsconfig.test.json` — TypeScript config for compiling tests to `.test-dist/`.
 
 ## Config
 
@@ -52,7 +63,7 @@ Use `normalizeConfig` from `src/config_schema.ts` when reading config to ensure 
 
 ## Developer notes & change summary
 
-The Stage is background-only and must not render visible UI — `render()` returns an empty fragment.
+The Stage is background-only and must not render visible UI — `render()` returns an empty fragment. Any UI in this repo is for local development only (via `src/TestRunner.tsx`).
 
 Key lifecycle wiring:
 
@@ -64,7 +75,7 @@ Key lifecycle wiring:
 Recent changes (high level):
 
 - Added robust, typed config normalization to `src/config_schema.ts`.
-- Implemented emotion snapshot extraction and delta evaluation.
+- Implemented emotion snapshot extraction and delta evaluation (now in `src/analysis_helpers.ts`).
 - Implemented scene capture & summarization.
 - Implemented phase tracking and escalation signals with warnings.
 - Implemented proximity gating and skipped-step warnings.
@@ -72,18 +83,17 @@ Recent changes (high level):
 - Implemented structured memory scar logging and a single recall mechanism.
 - Implemented subtext extraction and silence/pause interpreter.
 - Implemented relationship drift detection with strictness-based throttling.
+- Added a read-only developer overlay (toggle in dev runner settings).
+- Added unit tests and a `yarn test` script (Node `node:test`, compiled to `.test-dist/`).
 
 All heuristics are intentionally lightweight regex/heuristic-based and organized for easy unit testing and iterative refinement.
 
 ## Testing & QA
 
-Recommended unit tests:
+Unit tests:
 
-- `extractEmotionSnapshot` — verify tone/intensity classification
-- `evaluateEmotionalDelta` — whiplash detection logic
-- `detectEscalationSignals` — multiple signal types and phase suggestions
-- `detectProximityTransitions` — transition and skip detection
-- `detectConsentIssues`, `detectMemoryEvents`, `detectSubtext`, `detectSilenceOrPause`, `detectDrift`
+- `tests/config_schema.test.ts` covers config normalization and clamping.
+- `tests/stage-helpers.test.ts` covers emotion snapshot, emotional delta, and escalation signal extraction.
 
 Recommended functional tests:
 
@@ -102,6 +112,12 @@ yarn tsc --noEmit
 yarn build
 ```
 
+Run unit tests:
+
+```bash
+yarn test
+```
+
 Run dev mode (uses `src/TestRunner.tsx`):
 
 ```bash
@@ -118,7 +134,7 @@ Note: `package.json` currently specifies Node `21.7.1` in `engines`. Use an appr
 
 ## Next recommended tasks
 
-1. Add unit tests and CI (type-check, lint, tests).
-2. Tune heuristics and thresholds; expose more config knobs if desired.
-3. Add a `--dry-run` or verbose debug mode to surface all suppressed annotations for authors.
-4. Finalize documentation for contributors describing how to add new detectors and tests.
+1. Add CI (type-check, build, tests).
+2. Add functional tests around Stage lifecycle and state persistence.
+3. Tune heuristics and thresholds; expose more config knobs if desired.
+4. Document how to add new detectors + tests.
