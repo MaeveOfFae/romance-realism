@@ -1,6 +1,7 @@
 import {Stage} from "./Stage";
 import {useEffect, useState} from "react";
 import {DEFAULT_INITIAL, StageBase, InitialData} from "@chub-ai/stages-ts";
+import {DeveloperUI} from "./DeveloperUI";
 
 // Modify this JSON to include whatever character/user information you want to test.
 import InitData from './assets/test-init.json';
@@ -23,6 +24,23 @@ export const TestStageRunner = <StageType extends StageBase<InitStateType, ChatS
 
     // This is what forces the stage node to re-render.
     const [node, setNode] = useState(new Date());
+
+    const STORAGE_KEY = "romance-realism:showDeveloperUi";
+    const [settingsOpen, setSettingsOpen] = useState(false);
+    const [showDeveloperUi, setShowDeveloperUi] = useState<boolean>(() => {
+        try {
+            return window.localStorage.getItem(STORAGE_KEY) === "1";
+        } catch {
+            return false;
+        }
+    });
+    useEffect(() => {
+        try {
+            window.localStorage.setItem(STORAGE_KEY, showDeveloperUi ? "1" : "0");
+        } catch {
+            // ignore
+        }
+    }, [showDeveloperUi]);
 
     function refresh() {
         setNode(new Date());
@@ -97,6 +115,29 @@ export const TestStageRunner = <StageType extends StageBase<InitStateType, ChatS
 
     return <>
         <div style={{display: 'none'}}>{String(node)}{window.location.href}</div>
+        <div className="devUiRoot">
+            <button
+                className="devUiButton"
+                type="button"
+                aria-label="Open settings"
+                onClick={() => setSettingsOpen((v) => !v)}
+            >
+                ⚙
+            </button>
+            {settingsOpen && (
+                <div className="devUiMenu" role="menu" aria-label="Settings menu">
+                    <label className="devUiMenuItem">
+                        <input
+                            type="checkbox"
+                            checked={showDeveloperUi}
+                            onChange={(e) => setShowDeveloperUi(e.target.checked)}
+                        />
+                        <span>Show Developer UI</span>
+                    </label>
+                </div>
+            )}
+            {showDeveloperUi && <DeveloperUI stage={stage} />}
+        </div>
         {stage == null ? <div>Stage loading...</div> : stage.render()}
     </>;
 }

@@ -21,9 +21,14 @@ type EmotionSnapshot = {
 
 type MessageStateType = {
     lastEmotions?: EmotionSnapshot[]; // bounded array of recent message emotions
-    memoryScars?: string[]; // append-only emotional events
+    memoryScars?: Array<{event: string; text: string; at: number}>; // append-only emotional events
+    lastScarRecallIdx?: number;
     proximity?: "Distant" | "Nearby" | "Touching" | "Intimate";
     phase?: "Neutral" | "Familiar" | "Charged" | "Intimate";
+    proximityHistory?: Array<{state: MessageStateType["proximity"]; at: number}>;
+    consentAlerts?: number[];
+    silenceHistory?: number[];
+    driftNotes?: number[];
     [key: string]: any;
 };
 
@@ -220,11 +225,14 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         const snapshot: EmotionSnapshot = this.extractEmotionSnapshot(content);
         const priorEmotions = (this.myInternalState.lastEmotions || []);
 
-        // Example: detect a 'scar' keyword and append to memoryScars (append-only, trimmed by memory_depth)
-        if (/confess|betray|reject|rejects|rejected/i.test(content)) {
-            this.myInternalState.memoryScars = (this.myInternalState.memoryScars || []).concat([content]);
+        // Memory scar system: detect key emotional events and log them
+        const scarEvents = this.detectMemoryEvents(content);
+        if (scarEvents.length > 0) {
+            const now = Date.now();
             const depth = ((this as any)._effectiveConfig?.memory_depth) || this.defaultConfig.memory_depth;
-            this.myInternalState.memoryScars = this.myInternalState.memoryScars.slice(-depth);
+            this.myInternalState.memoryScars = (this.myInternalState.memoryScars || []).concat(
+                scarEvents.map(e => ({event: e, text: content.slice(0, 500), at: now}))
+            ).slice(-depth);
         }
 
         // Scene capture: update scene context heuristically from the bot message
@@ -233,6 +241,13 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         const updatedChatState: ChatStateType = {...(prevChatState || {}), scene: updatedScene};
         // persist in internal holder
         (this as any)._chatState = updatedChatState;
+
+        // Proximity realism gate
+        const proximityResult = this.detectProximityTransitions(content);
+        let proximityWarning: string | null = null;
+        if (proximityResult.skipped) {
+            proximityWarning = `System note: proximity jumped to ${proximityResult.next}. Consider describing intermediate steps.`;
+        }
 
         // ----------
         // Escalation / phase logic
@@ -303,6 +318,44 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
             systemMessage = systemMessage ? `${systemMessage} — ${escalationWarning}` : escalationWarning;
         }
 
+        if (proximityWarning) {
+            systemMessage = systemMessage ? `${systemMessage} — ${proximityWarning}` : proximityWarning;
+        }
+
+        const consentIssues = this.detectConsentIssues(content);
+        if (consentIssues.length > 0) {
+            this.myInternalState.consentAlerts = (this.myInternalState.consentAlerts || []).concat([Date.now()]).slice(-50);
+            const consentNote = `Consent/agency alert: ${consentIssues.join('; ')}`;
+            systemMessage = systemMessage ? `${systemMessage} — ${consentNote}` : consentNote;
+        }
+
+        // Subtext highlights (hesitation, avoidance, guarded interest, fear of rejection)
+        const subtextNotes = this.detectSubtext(content);
+        if (subtextNotes.length > 0) {
+            const note = `Subtext: ${subtextNotes.join('; ')}`;
+            systemMessage = systemMessage ? `${systemMessage} — ${note}` : note;
+        }
+
+        // Silence & pause interpreter
+        const silenceNote = this.detectSilenceOrPause(content);
+        if (silenceNote) {
+            this.myInternalState.silenceHistory = (this.myInternalState.silenceHistory || []).concat([Date.now()]).slice(-50);
+            systemMessage = systemMessage ? `${systemMessage} — ${silenceNote}` : silenceNote;
+        }
+
+        // Relationship drift detector
+        const driftNote = this.detectDrift(priorEmotions, this.myInternalState.phaseHistory || [], effectiveConfig);
+        if (driftNote) {
+            this.myInternalState.driftNotes = (this.myInternalState.driftNotes || []).concat([turnIndex]).slice(-50);
+            systemMessage = systemMessage ? `${systemMessage} — ${driftNote}` : driftNote;
+        }
+
+        // Scar recall (avoid spamming: only recall newest scar once)
+        const recall = this.recallMemoryScar();
+        if (recall) {
+            systemMessage = systemMessage ? `${systemMessage} — ${recall}` : recall;
+        }
+
         return {
             stageDirections: null,
             messageState: this.myInternalState,
@@ -336,6 +389,89 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
     // -----------------
     // Helper utilities
     // -----------------
+    private detectMemoryEvents(content: string): string[] {
+        if (!content) return [];
+        const hits: string[] = [];
+        if (/confess(ed)?|admit(s|ted)?/i.test(content)) hits.push('confession');
+        if (/betray(s|ed)?|lie(?:s|d)? to/i.test(content)) hits.push('betrayal');
+        if (/reject(s|ed)?|turns you down|pushes you away/i.test(content)) hits.push('rejection');
+        if (/argue|fight|conflict|shout at/i.test(content)) hits.push('conflict');
+        return hits;
+    }
+
+    private detectSubtext(content: string): string[] {
+        if (!content) return [];
+        const notes: string[] = [];
+
+        if (/(um\b|uh\b|ellipses|\.\.\.|hesitates|pauses)/i.test(content) || /(not sure|maybe|i guess)/i.test(content)) {
+            notes.push('hesitation/uncertainty');
+        }
+
+        if (/(changes the subject|deflects|avoids eye contact|looks away|shrugs it off)/i.test(content)) {
+            notes.push('avoidance');
+        }
+
+        if (/(careful not to|holding back|guarded|keeps distance emotionally)/i.test(content)) {
+            notes.push('guarded interest');
+        }
+
+        if (/(afraid to ask|fear of rejection|worried you'll say no|doesn't want to scare you off)/i.test(content)) {
+            notes.push('fear of rejection');
+        }
+
+        return notes;
+    }
+
+    private recallMemoryScar(): string | null {
+        const scars = this.myInternalState.memoryScars || [];
+        if (scars.length === 0) return null;
+        const lastIdx = this.myInternalState.lastScarRecallIdx ?? -1;
+        const targetIdx = scars.length - 1;
+        if (targetIdx === lastIdx) return null;
+        this.myInternalState.lastScarRecallIdx = targetIdx;
+        const scar = scars[targetIdx];
+        return `Recall: unresolved ${scar.event} persists. Keep continuity in tone and stakes.`;
+    }
+
+    private detectDrift(recentEmotions: EmotionSnapshot[], phaseHistory: Array<{phase: string; at: number}>, cfg: NormalizedConfig): string | null {
+        const driftWindow = cfg.strictness === 3 ? 8 : cfg.strictness === 1 ? 15 : 12;
+        const recentDriftNotes = (this.myInternalState.driftNotes || []).filter(
+            (t: number) => (this.myInternalState.turnIndex || 0) - t < driftWindow,
+        );
+        if (recentDriftNotes.length > 0) return null;
+
+        const lastPhases = (phaseHistory || []).slice(-3);
+        const phaseStable = lastPhases.length >= 2 && new Set(lastPhases.map(p => p.phase)).size === 1;
+
+        const emos = recentEmotions.slice(-5);
+        const toneSet = new Set(emos.map(e => e.tone));
+        const emotionalStagnant = emos.length >= 3 && toneSet.size <= 1;
+
+        if (phaseStable && emotionalStagnant) {
+            return 'Drift detected: relationship and emotion have stagnated. Suggest gentle narrative pressure or new beat.';
+        }
+        return null;
+    }
+
+    private detectSilenceOrPause(content: string): string | null {
+        if (content == null) return null;
+        const trimmed = content.trim();
+        if (trimmed.length === 0) return 'Silence detected: consider clarifying hesitation or disengagement.';
+
+        const short = trimmed.length < 25;
+        const nonCommittal = /(maybe|i guess|not sure|could be|i dunno|perhaps)/i.test(trimmed);
+        const curt = /^(ok|okay|sure|fine|whatever|yeah)\.?$/i.test(trimmed);
+
+        if (short && (nonCommittal || curt)) {
+            return 'Brief/non-committal reply: may signal hesitation or disengagement.';
+        }
+
+        if (/\.\.\.|\bpauses\b|\bhesitates\b/i.test(trimmed)) {
+            return 'Pause noted: consider leaning into hesitation or giving space.';
+        }
+
+        return null;
+    }
     private extractEmotionSnapshot(text: string): EmotionSnapshot {
         // Very coarse placeholder: real implementation will use heuristic parsing
         if (!text || text.trim().length === 0) return {tone: 'neutral', intensity: 'low'};
@@ -365,6 +501,26 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         const detected = (intensityJump >= 2) || (toneChanged && steadyPrev && Math.abs(intensityJump) >= 1);
         const summary = `from [${prevTones.join(', ')}] (${avgPrevIntensity}) to ${current.tone} (${curIntensity})`;
         return {detected, summary};
+    }
+
+    private detectProximityTransitions(content: string): {next: MessageStateType["proximity"], skipped: boolean} {
+        const order: MessageStateType["proximity"][] = ["Distant", "Nearby", "Touching", "Intimate"];
+        const current = this.myInternalState.proximity || "Distant";
+        const normalizedText = content.toLowerCase();
+        let next: MessageStateType["proximity"] = current;
+        if (/across the room|far away|distant/i.test(content)) next = "Distant";
+        if (/steps closer|sits beside|next to|nearby|close by/i.test(content)) next = "Nearby";
+        if (/touch|hand in hand|holds|brushes|resting on/i.test(content)) next = "Touching";
+        if (/embrace tightly|presses against|kiss(?:ing)?|intimate|caress/i.test(content)) next = "Intimate";
+
+        const curIndex = order.indexOf(current);
+        const nextIndex = order.indexOf(next);
+        const skipped = nextIndex > curIndex + 1;
+        if (nextIndex >= 0 && next !== current) {
+            this.myInternalState.proximity = next;
+            this.myInternalState.proximityHistory = (this.myInternalState.proximityHistory || []).concat([{state: next, at: Date.now()}]).slice(-50);
+        }
+        return {next, skipped};
     }
 
     // Detect escalation signals from message content + snapshot. Returns an array of signals with suggested phase.
@@ -398,6 +554,26 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         }
 
         return signals;
+    }
+
+    private detectConsentIssues(content: string): string[] {
+        if (!content) return [];
+        const issues: string[] = [];
+        const text = content.toLowerCase();
+
+        if (/you (?:feel|felt|are overcome|can't help but feel)/i.test(content)) {
+            issues.push('assigns emotions to the user');
+        }
+
+        if (/(you must|you have no choice|without your consent|ignoring your protest|forces you)/i.test(content)) {
+            issues.push('forces decisions/consent onto the user');
+        }
+
+        if (/(inside your mind|your thoughts say|your inner voice|you think to yourself)/i.test(content)) {
+            issues.push('describes internal monologue for the user');
+        }
+
+        return issues;
     }
 
     // Scene helpers
