@@ -163,66 +163,80 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
     }
 
     async beforePrompt(userMessage: Message): Promise<Partial<StageResponse<ChatStateType, MessageStateType>>> {
-        /***
-         This is called after someone presses 'send', but before anything is sent to the LLM.
-         ***/
-        const {content, anonymizedId, isBot} = userMessage;
-        const effectiveConfig = (this as any)._effectiveConfig || this.defaultConfig;
-        const strictnessLevel = typeof effectiveConfig.strictness === 'number'
-            ? Math.floor(effectiveConfig.strictness)
-            : 2;
-        if (!effectiveConfig.enabled) {
+        try {
+            /***
+             This is called after someone presses 'send', but before anything is sent to the LLM.
+             ***/
+            const content = typeof (userMessage as any)?.content === 'string' ? (userMessage as any).content : '';
+            const effectiveConfig = (this as any)._effectiveConfig || this.defaultConfig;
+            const strictnessLevel = typeof effectiveConfig.strictness === 'number'
+                ? Math.floor(effectiveConfig.strictness)
+                : 2;
+            if (!effectiveConfig.enabled) {
+                const currentChatState: ChatStateType | null = (this as any)._chatState || null;
+                return {
+                    stageDirections: null,
+                    messageState: {...this.myInternalState},
+                    modifiedMessage: null,
+                    systemMessage: null,
+                    error: null,
+                    chatState: currentChatState || null,
+                };
+            }
+            // Scene Carryover Anchor: attach concise system summary when scene is present
             const currentChatState: ChatStateType | null = (this as any)._chatState || null;
+            let systemMessage: string | null = null;
+            // Only emit user-visible system messages at the highest strictness to avoid cluttering the chat log.
+            if (strictnessLevel >= 3 && currentChatState && currentChatState.scene) {
+                const summary = this.summarizeScene(currentChatState.scene);
+                if (summary) systemMessage = `Scene summary: ${summary}`;
+            }
+
+            const messageState: MessageStateType = {...this.myInternalState};
+            return {
+                stageDirections: null,
+                messageState,
+                modifiedMessage: null,
+                systemMessage,
+                error: null,
+                chatState: currentChatState || null,
+            };
+        } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            console.error('Stage beforePrompt error:', e);
             return {
                 stageDirections: null,
                 messageState: {...this.myInternalState},
                 modifiedMessage: null,
                 systemMessage: null,
-                error: null,
-                chatState: currentChatState || null,
+                error: `Stage error (beforePrompt): ${msg}`,
+                chatState: (this as any)._chatState || null,
             };
         }
-        // Scene Carryover Anchor: attach concise system summary when scene is present
-        const currentChatState: ChatStateType | null = (this as any)._chatState || null;
-        let systemMessage: string | null = null;
-        // Only emit user-visible system messages at the highest strictness to avoid cluttering the chat log.
-        if (strictnessLevel >= 3 && currentChatState && currentChatState.scene) {
-            const summary = this.summarizeScene(currentChatState.scene);
-            if (summary) systemMessage = `Scene summary: ${summary}`;
-        }
-
-        const messageState: MessageStateType = {...this.myInternalState};
-        return {
-            stageDirections: null,
-            messageState,
-            modifiedMessage: null,
-            systemMessage,
-            error: null,
-            chatState: currentChatState || null,
-        };
     }
 
     async afterResponse(botMessage: Message): Promise<Partial<StageResponse<ChatStateType, MessageStateType>>> {
-        /***
-         This is called immediately after a response from the LLM.
-         ***/
-        const {content, anonymizedId, isBot} = botMessage;
-        const effectiveConfig = (this as any)._effectiveConfig || this.defaultConfig;
-        const strictnessLevel = typeof effectiveConfig.strictness === 'number'
-            ? Math.floor(effectiveConfig.strictness)
-            : 2;
-        if (!effectiveConfig.enabled) {
-            return {
-                stageDirections: null,
-                messageState: this.myInternalState,
-                modifiedMessage: null,
-                error: null,
-                systemMessage: null,
-                chatState: (this as any)._chatState || null
-            };
-        }
-        const turnIndex = (this.myInternalState.turnIndex || 0) + 1;
-        this.myInternalState.turnIndex = turnIndex;
+        try {
+            /***
+             This is called immediately after a response from the LLM.
+             ***/
+            const content = typeof (botMessage as any)?.content === 'string' ? (botMessage as any).content : '';
+            const effectiveConfig = (this as any)._effectiveConfig || this.defaultConfig;
+            const strictnessLevel = typeof effectiveConfig.strictness === 'number'
+                ? Math.floor(effectiveConfig.strictness)
+                : 2;
+            if (!effectiveConfig.enabled) {
+                return {
+                    stageDirections: null,
+                    messageState: this.myInternalState,
+                    modifiedMessage: null,
+                    error: null,
+                    systemMessage: null,
+                    chatState: (this as any)._chatState || null
+                };
+            }
+            const turnIndex = (this.myInternalState.turnIndex || 0) + 1;
+            this.myInternalState.turnIndex = turnIndex;
 
         // Global system note throttle to prevent "catching" every bot message with annotations.
         const systemNoteHistory: number[] = Array.isArray((this.myInternalState as any).systemNoteHistory)
@@ -380,14 +394,26 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
             (this.myInternalState as any).systemNoteHistory = recentSystemNotes.concat([turnIndex]).slice(-100);
         }
 
-        return {
-            stageDirections: null,
-            messageState: this.myInternalState,
-            modifiedMessage: null,
-            error: null,
-            systemMessage,
-            chatState: updatedChatState
-        };
+            return {
+                stageDirections: null,
+                messageState: this.myInternalState,
+                modifiedMessage: null,
+                error: null,
+                systemMessage,
+                chatState: updatedChatState
+            };
+        } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            console.error('Stage afterResponse error:', e);
+            return {
+                stageDirections: null,
+                messageState: this.myInternalState,
+                modifiedMessage: null,
+                systemMessage: null,
+                error: `Stage error (afterResponse): ${msg}`,
+                chatState: (this as any)._chatState || null,
+            };
+        }
     }
 
 
@@ -499,7 +525,6 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
     private detectProximityTransitions(content: string): {next: MessageStateType["proximity"], skipped: boolean} {
         const order: MessageStateType["proximity"][] = ["Distant", "Nearby", "Touching", "Intimate"];
         const current = this.myInternalState.proximity || "Distant";
-        const normalizedText = content.toLowerCase();
         let next: MessageStateType["proximity"] = current;
         if (/across the room|far away|distant/i.test(content)) next = "Distant";
         if (/steps closer|sits beside|next to|nearby|close by/i.test(content)) next = "Nearby";
@@ -519,7 +544,6 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
     private detectConsentIssues(content: string): string[] {
         if (!content) return [];
         const issues: string[] = [];
-        const text = content.toLowerCase();
 
         if (/you (?:feel|felt|are overcome|can't help but feel)/i.test(content)) {
             issues.push('assigns emotions to the user');
