@@ -204,6 +204,9 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
          ***/
         const {content, anonymizedId, isBot} = botMessage;
         const effectiveConfig = (this as any)._effectiveConfig || this.defaultConfig;
+        const strictnessLevel = typeof effectiveConfig.strictness === 'number'
+            ? Math.floor(effectiveConfig.strictness)
+            : 2;
         if (!effectiveConfig.enabled) {
             return {
                 stageDirections: null,
@@ -216,6 +219,16 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         }
         const turnIndex = (this.myInternalState.turnIndex || 0) + 1;
         this.myInternalState.turnIndex = turnIndex;
+
+        // Global system note throttle to prevent "catching" every bot message with annotations.
+        const systemNoteHistory: number[] = Array.isArray((this.myInternalState as any).systemNoteHistory)
+            ? (this.myInternalState as any).systemNoteHistory
+            : [];
+        const recentSystemNotes = systemNoteHistory.filter((idx) => idx > turnIndex - 20);
+        const allowedSystemNotesPer20 = ({1: 1, 2: 3, 3: 6} as Record<number, number>)[strictnessLevel] ?? 3;
+        const canEmitNonCriticalSystemMessage = recentSystemNotes.length < allowedSystemNotesPer20;
+        let criticalSystemNote = false;
+
         // Run lightweight analysis hooks (placeholders) that will be expanded later.
         const snapshot: EmotionSnapshot = extractEmotionSnapshot(content);
         const priorEmotions = (this.myInternalState.lastEmotions || []);
@@ -290,10 +303,9 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         // Emotional delta evaluation: detect whiplash and optionally attach a user-visible system note.
         let systemMessage: string | null = null;
         const delta = evaluateEmotionalDelta(snapshot, priorEmotions);
-        if (delta.detected && effectiveConfig.enabled) {
+        if (delta.detected && effectiveConfig.enabled && canEmitNonCriticalSystemMessage) {
             // annotation frequency control: strictness 1..3 -> allowed annotations per window
-            const s = typeof effectiveConfig.strictness === 'number' ? Math.floor(effectiveConfig.strictness) : 2;
-            const allowedByStrictness = ({1: 1, 2: 2, 3: 3} as Record<number, number>)[s] || 2;
+            const allowedByStrictness = ({1: 1, 2: 2, 3: 3} as Record<number, number>)[strictnessLevel] || 2;
             this.myInternalState.lastAnnotations = this.myInternalState.lastAnnotations || [];
             // count recent annotations in last 20 messages (approx)
             const recentCount = this.myInternalState.lastAnnotations.filter((idx: number) => idx > turnIndex - 20).length;
@@ -309,46 +321,59 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         this.myInternalState.lastEmotions = priorEmotions.concat(snapshot).slice(-5);
 
         // Merge escalation warning into systemMessage (do not overwrite existing note if present)
-        if (escalationWarning) {
+        if (escalationWarning && (canEmitNonCriticalSystemMessage || criticalSystemNote || systemMessage != null)) {
             systemMessage = systemMessage ? `${systemMessage} — ${escalationWarning}` : escalationWarning;
         }
 
-        if (proximityWarning) {
+        if (proximityWarning && (canEmitNonCriticalSystemMessage || criticalSystemNote || systemMessage != null)) {
             systemMessage = systemMessage ? `${systemMessage} — ${proximityWarning}` : proximityWarning;
         }
 
         const consentIssues = this.detectConsentIssues(content);
         if (consentIssues.length > 0) {
+            criticalSystemNote = true;
             this.myInternalState.consentAlerts = (this.myInternalState.consentAlerts || []).concat([Date.now()]).slice(-50);
             const consentNote = `Consent/agency alert: ${consentIssues.join('; ')}`;
             systemMessage = systemMessage ? `${systemMessage} — ${consentNote}` : consentNote;
         }
 
         // Subtext highlights (hesitation, avoidance, guarded interest, fear of rejection)
-        const subtextNotes = this.detectSubtext(content);
-        if (subtextNotes.length > 0) {
-            const note = `Subtext: ${subtextNotes.join('; ')}`;
-            systemMessage = systemMessage ? `${systemMessage} — ${note}` : note;
+        if (strictnessLevel >= 2 && (canEmitNonCriticalSystemMessage || criticalSystemNote || systemMessage != null)) {
+            const subtextNotes = this.detectSubtext(content);
+            if (subtextNotes.length > 0) {
+                const note = `Subtext: ${subtextNotes.join('; ')}`;
+                systemMessage = systemMessage ? `${systemMessage} — ${note}` : note;
+            }
         }
 
         // Silence & pause interpreter
-        const silenceNote = this.detectSilenceOrPause(content);
-        if (silenceNote) {
-            this.myInternalState.silenceHistory = (this.myInternalState.silenceHistory || []).concat([Date.now()]).slice(-50);
-            systemMessage = systemMessage ? `${systemMessage} — ${silenceNote}` : silenceNote;
+        if (strictnessLevel >= 3 && (canEmitNonCriticalSystemMessage || criticalSystemNote || systemMessage != null)) {
+            const silenceNote = this.detectSilenceOrPause(content);
+            if (silenceNote) {
+                this.myInternalState.silenceHistory = (this.myInternalState.silenceHistory || []).concat([Date.now()]).slice(-50);
+                systemMessage = systemMessage ? `${systemMessage} — ${silenceNote}` : silenceNote;
+            }
         }
 
         // Relationship drift detector
-        const driftNote = this.detectDrift(priorEmotions, this.myInternalState.phaseHistory || [], effectiveConfig);
-        if (driftNote) {
-            this.myInternalState.driftNotes = (this.myInternalState.driftNotes || []).concat([turnIndex]).slice(-50);
-            systemMessage = systemMessage ? `${systemMessage} — ${driftNote}` : driftNote;
+        if (strictnessLevel >= 3 && (canEmitNonCriticalSystemMessage || criticalSystemNote || systemMessage != null)) {
+            const driftNote = this.detectDrift(priorEmotions, this.myInternalState.phaseHistory || [], effectiveConfig);
+            if (driftNote) {
+                this.myInternalState.driftNotes = (this.myInternalState.driftNotes || []).concat([turnIndex]).slice(-50);
+                systemMessage = systemMessage ? `${systemMessage} — ${driftNote}` : driftNote;
+            }
         }
 
         // Scar recall (avoid spamming: only recall newest scar once)
-        const recall = this.recallMemoryScar();
-        if (recall) {
-            systemMessage = systemMessage ? `${systemMessage} — ${recall}` : recall;
+        if (strictnessLevel >= 3 && (canEmitNonCriticalSystemMessage || criticalSystemNote || systemMessage != null)) {
+            const recall = this.recallMemoryScar();
+            if (recall) {
+                systemMessage = systemMessage ? `${systemMessage} — ${recall}` : recall;
+            }
+        }
+
+        if (systemMessage != null) {
+            (this.myInternalState as any).systemNoteHistory = recentSystemNotes.concat([turnIndex]).slice(-100);
         }
 
         return {
