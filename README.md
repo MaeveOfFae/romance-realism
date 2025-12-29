@@ -1,10 +1,10 @@
-![](demo.GIF)
-
 # Romance Realism
+
+TL;DR - Keeps track of mundane shit hopefully so that the characters can say... remember where they are standing.
 
 Background-only realism guardrails for slow-burn romance roleplay. This Stage runs silently alongside a chat to provide non-intrusive, user-visible system notes that help keep long-form roleplay emotionally consistent and slow-burning without rewriting or blocking user content.
 
-**Key goals**
+Key goals:
 
 - Detect abrupt emotional shifts and suggest transitional cues.
 - Track scene carryover (location, time-of-day, lingering mood, unresolved beats).
@@ -12,13 +12,12 @@ Background-only realism guardrails for slow-burn romance roleplay. This Stage ru
 - Log emotional "scars" (conflicts, confessions, rejections) in an append-only memory.
 - Surface subtext and pause/hesitation signals as concise system notes for authorship visibility.
 
-**Safety guarantees**
-
 ## Romance Realism Pack
 
 Background-only realism guardrails for slow-burn romance roleplay. This Stage runs quietly alongside a chat and emits concise, user-visible system notes to help keep long-form roleplay emotionally coherent and slow-burning without rewriting or blocking user content.
 
 Summary of implemented features (status):
+
 - Stage skeleton & lifecycle wiring — completed
 - Config schema & null-safety (`enabled`, `strictness`, `memory_depth`) — completed
 - Emotion snapshot (tone + intensity) and delta / whiplash detection — completed
@@ -53,12 +52,14 @@ Use `normalizeConfig` from `src/config_schema.ts` when reading config to ensure 
 
 ## Developer notes & change summary
 
-- The Stage is background-only and must not render visible UI — `render()` returns an empty fragment.
-- Key lifecycle wiring:
-	- `load()` initializes the stage and returns `success: true`.
-	- `beforePrompt()` attaches a concise scene summary as a system message when scene context exists.
-	- `afterResponse()` performs all analyses and augments message-level state (`messageState`) and may add a `systemMessage` shown to authors.
-	- `setState()` restores persisted message-level state on branch navigation.
+The Stage is background-only and must not render visible UI — `render()` returns an empty fragment.
+
+Key lifecycle wiring:
+
+- `load()` initializes the stage and returns `success: true`.
+- `beforePrompt()` attaches a concise scene summary as a system message when scene context exists.
+- `afterResponse()` performs all analyses and augments message-level state (`messageState`) and may add a `systemMessage` shown to authors.
+- `setState()` restores persisted message-level state on branch navigation.
 
 Recent changes (high level):
 
@@ -76,18 +77,21 @@ All heuristics are intentionally lightweight regex/heuristic-based and organized
 
 ## Testing & QA
 
-- Recommended unit tests:
-	- `extractEmotionSnapshot` — verify tone/intensity classification
-	- `evaluateEmotionalDelta` — whiplash detection logic
-	- `detectEscalationSignals` — multiple signal types and phase suggestions
-	- `detectProximityTransitions` — transition and skip detection
-	- `detectConsentIssues`, `detectMemoryEvents`, `detectSubtext`, `detectSilenceOrPause`, `detectDrift`
-- Recommended functional tests:
-	- Emotional whiplash scenarios
-	- Scene persistence across `setState`/swipe
-	- Phase advancement and skip warnings
-	- Memory-scar logging and recall
-	- Silence vs disengagement classification
+Recommended unit tests:
+
+- `extractEmotionSnapshot` — verify tone/intensity classification
+- `evaluateEmotionalDelta` — whiplash detection logic
+- `detectEscalationSignals` — multiple signal types and phase suggestions
+- `detectProximityTransitions` — transition and skip detection
+- `detectConsentIssues`, `detectMemoryEvents`, `detectSubtext`, `detectSilenceOrPause`, `detectDrift`
+
+Recommended functional tests:
+
+- Emotional whiplash scenarios
+- Scene persistence across `setState`/swipe
+- Phase advancement and skip warnings
+- Memory-scar logging and recall
+- Silence vs disengagement classification
 
 ### Quick local checks
 
