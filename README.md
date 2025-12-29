@@ -61,11 +61,3 @@ yarn dev
 
 ## Contributing
 - Keep fixes focused and test-driven. Avoid adding external network calls or UI components.
-
----
-
-If you'd like, I can also:
-- add unit tests for the main heuristics,
-- run TypeScript type checks and fix any issues,
-- or prepare a minimal `chub_meta.yaml` and package metadata.
-
