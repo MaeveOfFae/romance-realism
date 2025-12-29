@@ -168,6 +168,9 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
          ***/
         const {content, anonymizedId, isBot} = userMessage;
         const effectiveConfig = (this as any)._effectiveConfig || this.defaultConfig;
+        const strictnessLevel = typeof effectiveConfig.strictness === 'number'
+            ? Math.floor(effectiveConfig.strictness)
+            : 2;
         if (!effectiveConfig.enabled) {
             const currentChatState: ChatStateType | null = (this as any)._chatState || null;
             return {
@@ -182,7 +185,8 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         // Scene Carryover Anchor: attach concise system summary when scene is present
         const currentChatState: ChatStateType | null = (this as any)._chatState || null;
         let systemMessage: string | null = null;
-        if (currentChatState && currentChatState.scene) {
+        // Only emit user-visible system messages at the highest strictness to avoid cluttering the chat log.
+        if (strictnessLevel >= 3 && currentChatState && currentChatState.scene) {
             const summary = this.summarizeScene(currentChatState.scene);
             if (summary) systemMessage = `Scene summary: ${summary}`;
         }
@@ -225,8 +229,8 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
             ? (this.myInternalState as any).systemNoteHistory
             : [];
         const recentSystemNotes = systemNoteHistory.filter((idx) => idx > turnIndex - 20);
-        const allowedSystemNotesPer20 = ({1: 1, 2: 3, 3: 6} as Record<number, number>)[strictnessLevel] ?? 3;
-        const canEmitNonCriticalSystemMessage = recentSystemNotes.length < allowedSystemNotesPer20;
+        const allowedSystemNotesPer20 = ({1: 0, 2: 0, 3: 6} as Record<number, number>)[strictnessLevel] ?? 0;
+        const canEmitNonCriticalSystemMessage = strictnessLevel >= 3 && recentSystemNotes.length < allowedSystemNotesPer20;
         let criticalSystemNote = false;
 
         // Run lightweight analysis hooks (placeholders) that will be expanded later.

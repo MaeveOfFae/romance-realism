@@ -56,7 +56,7 @@ Estimated completeness: core feature set implemented ~95% — remaining work is 
 The stage accepts a small, null-safe config object. Missing values fall back to defaults.
 
 - `enabled` (boolean) — default `true`. Toggle the pack on/off.
-- `strictness` (integer, 1–3) — default `2`. Controls annotation frequency/throttling and some detector windows.
+- `strictness` (integer, 1–3) — default `2`. Controls annotation frequency/throttling and some detector windows (use `3` for user-visible system notes; `1–2` are intentionally quiet).
 - `memory_depth` (integer, 5–30) — default `15`. Caps the size of the memory scars log.
 
 Use `normalizeConfig` from `src/config_schema.ts` when reading config to ensure values are clamped and safe.
