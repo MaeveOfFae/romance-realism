@@ -16,14 +16,14 @@ Key goals:
 
 Background-only realism guardrails for slow-burn romance roleplay. This Stage runs quietly alongside a chat and emits concise, user-visible system notes to help keep long-form roleplay emotionally coherent and slow-burning without rewriting or blocking user content.
 
-**Current status (2025-12-29)**
+Current status (2025-12-29):
 
 - Core heuristics and features implemented (emotion snapshots, delta detection, scene carryover, phase & proximity gates, consent checks, memory scars, subtext, silence interpreter, drift detector).
 - Type-check and production build succeed locally (`yarn tsc --noEmit` and `yarn build`).
 - Unit tests added (dependency-free, Node `node:test`) — run with `yarn test`.
 - Read-only developer overlay added for local dev (toggle in the dev runner settings menu).
 
-Summary of implemented features (status):
+**Summary of implemented features (status):**
 
 - Stage skeleton & lifecycle wiring — completed
 - Config schema & null-safety (`enabled`, `strictness`, `memory_depth`) — completed

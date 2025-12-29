@@ -9,12 +9,13 @@
 // so that the chat page can be seen through the stage
 * {
   background-color: transparent !important;
-  overflow: hidden !important;
 }
 
 html, body, #root {
   margin: 0;
   padding: 0;
+  // This stage is intended to be non-interactive and should not eat clicks meant for the chat.
+  pointer-events: none;
 }
 
 // Local dev overlay utilities (used by TestRunner only).
@@ -24,9 +25,10 @@ html, body, #root {
   right: 12px;
   z-index: 999999;
 
-  // Override global "overflow: hidden !important" so the panel can scroll.
+  // Re-enable interactivity for local dev tooling.
   &, * {
     overflow: visible !important;
+    pointer-events: auto;
   }
 }
 
