@@ -1,7 +1,9 @@
-import {ReactElement} from "react";
+import type {ReactElement} from "react";
 import {StageBase, StageResponse, InitialData, Message} from "@chub-ai/stages-ts";
 import {LoadResponse} from "@chub-ai/stages-ts/dist/types/load";
 import {DEFAULT_CONFIG, normalizeConfig, NormalizedConfig} from "./config_schema";
+import type {EmotionSnapshot} from "./analysis_helpers";
+import {detectEscalationSignals, evaluateEmotionalDelta, extractEmotionSnapshot} from "./analysis_helpers";
 
 /***
  The type that this stage persists message-level state in.
@@ -12,13 +14,6 @@ import {DEFAULT_CONFIG, normalizeConfig, NormalizedConfig} from "./config_schema
   but not for things like history, which is best managed ephemerally
   in the internal state of the Stage class itself.
  ***/
-type EmotionIntensity = "low" | "medium" | "high";
-
-type EmotionSnapshot = {
-    tone: string; // coarse label, e.g. "sad", "joy", "neutral"
-    intensity: EmotionIntensity;
-};
-
 type MessageStateType = {
     lastEmotions?: EmotionSnapshot[]; // bounded array of recent message emotions
     memoryScars?: Array<{event: string; text: string; at: number}>; // append-only emotional events
@@ -222,7 +217,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         const turnIndex = (this.myInternalState.turnIndex || 0) + 1;
         this.myInternalState.turnIndex = turnIndex;
         // Run lightweight analysis hooks (placeholders) that will be expanded later.
-        const snapshot: EmotionSnapshot = this.extractEmotionSnapshot(content);
+        const snapshot: EmotionSnapshot = extractEmotionSnapshot(content);
         const priorEmotions = (this.myInternalState.lastEmotions || []);
 
         // Memory scar system: detect key emotional events and log them
@@ -253,7 +248,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         // Escalation / phase logic
         // ----------
         // detect escalation signals in this bot message
-        const signals = this.detectEscalationSignals(content, snapshot);
+        const signals = detectEscalationSignals(content, snapshot);
         this.myInternalState.signalHistory = (this.myInternalState.signalHistory || []).concat(signals).slice(-20);
 
         // aggregate recent signals across last N turns (simple count)
@@ -294,7 +289,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
 
         // Emotional delta evaluation: detect whiplash and optionally attach a user-visible system note.
         let systemMessage: string | null = null;
-        const delta = this.evaluateEmotionalDelta(snapshot, priorEmotions);
+        const delta = evaluateEmotionalDelta(snapshot, priorEmotions);
         if (delta.detected && effectiveConfig.enabled) {
             // annotation frequency control: strictness 1..3 -> allowed annotations per window
             const s = typeof effectiveConfig.strictness === 'number' ? Math.floor(effectiveConfig.strictness) : 2;
@@ -472,37 +467,6 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
 
         return null;
     }
-    private extractEmotionSnapshot(text: string): EmotionSnapshot {
-        // Very coarse placeholder: real implementation will use heuristic parsing
-        if (!text || text.trim().length === 0) return {tone: 'neutral', intensity: 'low'};
-        if (/!|\b(am|so|very)\b/i.test(text)) return {tone: 'excited', intensity: 'medium'};
-        if (/sad|tear|cry|sorry|regret/i.test(text)) return {tone: 'sad', intensity: 'medium'};
-        if (/love|like|cherish|admire/i.test(text)) return {tone: 'affection', intensity: 'medium'};
-        return {tone: 'neutral', intensity: 'low'};
-    }
-
-    private evaluateEmotionalDelta(current: EmotionSnapshot, recent: EmotionSnapshot[]) {
-        // Compare `current` to the recent window (last 3-5). Return a small object describing detection.
-        const window = recent.slice(-5);
-        if (!window || window.length === 0) return {detected: false, summary: ''};
-
-        // Compute simple metrics: most recent tone, average intensity score
-        const intensityScore = (s: EmotionSnapshot) => ({low: 0, medium: 1, high: 2}[s.intensity] ?? 0);
-        const avgPrevIntensity = Math.round(window.reduce((a, b) => a + intensityScore(b), 0) / window.length);
-        const prevTones = Array.from(new Set(window.map(s => s.tone))).slice(-3);
-
-        const curIntensity = intensityScore(current);
-        const toneChanged = prevTones.length === 0 ? false : (prevTones[prevTones.length - 1] !== current.tone);
-
-        // Heuristic: large intensity jump (low->high) OR tone change from several-turn steady state
-        const intensityJump = curIntensity - avgPrevIntensity;
-        const steadyPrev = prevTones.length >= 2 && prevTones.every(t => t === prevTones[0]);
-
-        const detected = (intensityJump >= 2) || (toneChanged && steadyPrev && Math.abs(intensityJump) >= 1);
-        const summary = `from [${prevTones.join(', ')}] (${avgPrevIntensity}) to ${current.tone} (${curIntensity})`;
-        return {detected, summary};
-    }
-
     private detectProximityTransitions(content: string): {next: MessageStateType["proximity"], skipped: boolean} {
         const order: MessageStateType["proximity"][] = ["Distant", "Nearby", "Touching", "Intimate"];
         const current = this.myInternalState.proximity || "Distant";
@@ -521,39 +485,6 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
             this.myInternalState.proximityHistory = (this.myInternalState.proximityHistory || []).concat([{state: next, at: Date.now()}]).slice(-50);
         }
         return {next, skipped};
-    }
-
-    // Detect escalation signals from message content + snapshot. Returns an array of signals with suggested phase.
-    private detectEscalationSignals(content: string, snapshot: EmotionSnapshot) {
-        const signals: Array<{type: string; suggestedPhase: string; text: string}> = [];
-        if (!content || content.trim().length === 0) return signals;
-
-        // Emotional disclosure markers -> Familiar
-        if (/I\s+(feel|felt|confess|admit|can't help)/i.test(content) || /confess(ed)?/i.test(content)) {
-            signals.push({type: 'emotional_disclosure', suggestedPhase: 'Familiar', text: content.slice(0, 200)});
-        }
-
-        // Dependency / need language -> Charged
-        if (/I need you|I can't live|depend on you|rely on you|can't (?:do|be)/i.test(content)) {
-            signals.push({type: 'dependency', suggestedPhase: 'Charged', text: content.slice(0, 200)});
-        }
-
-        // Physical closeness markers -> Charged
-        if (/hug|kiss|hold|embrace|press(es|ed)?|near|closer|close to/i.test(content)) {
-            signals.push({type: 'physical_closeness', suggestedPhase: 'Charged', text: content.slice(0, 200)});
-        }
-
-        // Intimacy markers -> Intimate
-        if (/kiss(ed)? on the lips|making love|sex|fellatio|intercourse|nude|strip/i.test(content)) {
-            signals.push({type: 'physical_intimacy', suggestedPhase: 'Intimate', text: content.slice(0, 200)});
-        }
-
-        // Snapshot-based intensity can boost suggestions (e.g., high intensity affection)
-        if (snapshot.tone === 'affection' && snapshot.intensity === 'high') {
-            signals.push({type: 'affection_high', suggestedPhase: 'Charged', text: 'high-affection'});
-        }
-
-        return signals;
     }
 
     private detectConsentIssues(content: string): string[] {

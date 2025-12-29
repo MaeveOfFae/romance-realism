@@ -29,3 +29,4 @@ dist/
 creation.json
 *.trash
 *.tgz
+.test-dist/
