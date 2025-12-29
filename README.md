@@ -1,61 +1,70 @@
 ![](demo.GIF)
 
-# Stage Template for Chub
+# Romance Realism Pack
 
-This is a template stage that does nothing, to be used as a base
-when developing stages. Please clone it [from GitHub](https://github.com/CharHubAI/stage-template) to use as a template.
+Background-only realism guardrails for slow-burn romance roleplay. This Stage runs silently alongside a chat to provide non-intrusive, user-visible system notes that help keep long-form roleplay emotionally consistent and slow-burning without rewriting or blocking user content.
 
-# Overview
+**Key goals**
 
-A Stage is a software component written by other people that can be used within a chat with a language model. They are meant to add functionality like expression packs (showing a character's emotional state with a set of images), UIs for mini-games, special prompt handling, or even interacting with third-party APIs. If you're familiar with React and/or TypeScript, you can write a stage yourself.
+- Detect abrupt emotional shifts and suggest transitional cues.
+- Track scene carryover (location, time-of-day, lingering mood, unresolved beats).
+- Monitor slow-burn relationship phases and flag skipped escalation steps.
+- Log emotional "scars" (conflicts, confessions, rejections) in an append-only memory.
+- Surface subtext and pause/hesitation signals as concise system notes for authorship visibility.
 
-### Stage Use Cases
-- Creating a UI for a world, character, or setting
-- Making RPGs and other multimedia experiences
-- Custom stat blocks that can do math and handle state correctly
-- Specific input/output handling in code to deal with quirks of a particular model
+**Safety guarantees**
+- Never rewrites or censors messages.
+- No external network calls.
+- No UI rendering — this stage is background-only (returns `null` from `render`).
 
-### Why develop a stage instead of making something from scratch?
-- **Intuitive Development:** The stages framework and platform were created with developers in mind from the ground up, resulting in as straightforward an interface as possible with a negligible learning curve. 
-- **Cross-Platform:** Stages are write once, run everywhere. When you commit, your stage is immediately built and available on the web, iOS and Android mobile devices, and the Vision Pro, with support for more platforms incoming. 
-- **Multimedia:** Language, imagery, audio, and everything else can add up to a half-dozen or more APIs and interfaces that need to be set up, tested, monitored. With a stage, a unified interface for all of it is built in.
-- **Audience Reach:** Many gaming and multimedia platforms ban GenAI content outright, or have userbases hostile to it. Chub has millions of people specifically here for generative AI.
-- **Peace of Mind:** It has become a trope for passion projects using OpenAI and other APIs to get destroyed by hostiles reverse engineering it into a free proxy. If developed as a stage, it's not your problem, and you can focus on what matters.
-- **Actively Developed Platform:** This is just the beginning. Scheduling, full VR/AR support, non-React implementations, and more are incoming.
+## Files of interest
+- `src/Stage.tsx` — stage implementation and lifecycle hooks (`load`, `beforePrompt`, `afterResponse`, `setState`).
+- `src/config_schema.ts` — null-safe config schema and `normalizeConfig` helper.
+- `src/TestRunner.tsx` — local development runner used in dev mode.
 
+## Config
+The stage accepts a small, null-safe config object. Missing values fall back to sensible defaults.
 
-# Meta -- But Why?
+- `enabled` (boolean) — default `true`. Turn the pack on/off.
+- `strictness` (integer, 1–3) — default `2`. Controls annotation frequency and sensitivity.
+- `memory_depth` (integer, 5–30) — default `15`. Caps the size of the emotional scar memory.
 
-As far as why this has been created, I’m trying to go where the puck is going instead of where it is, and I think there’s a need for something like itch.io for generative AI where (1) developers don’t have to worry about integrations and devops and (2) there’s an audience of people that are already explicitly on the AI side of the pro/anti discussion.
+Use `normalizeConfig` from `src/config_schema.ts` when reading config to ensure values are clamped and safe.
 
-This is basically in the early stages of “do developers want this?” with a fraction of what I want to do with it if the answer is yes. The current license is to prevent competing platforms, and if it turns out to be something there is strong interest in it would be going the way of itch where it’s not just commercial use allowed but explicitly a platform for indies to monetize through.
+## Developer notes
+- The Stage is background-only and must not render UI. Keep `render()` returning `null`.
+- Lifecycle responsibilities:
+	- `load()` initializes any async resources (returns `success: true` by default).
+	- `beforePrompt()` attaches a concise scene summary as a system message when available.
+	- `afterResponse()` runs analysis hooks: emotion snapshot, delta evaluation, scene capture, escalation signals, memory scar logging.
+	- `setState()` restores message-level persisted state after branch navigation.
+- All heuristics are intentionally lightweight and heuristic-first for easy unit testing and iteration.
 
-# Latest Documentation
+## Testing
+- Add unit tests for `extractEmotionSnapshot`, `evaluateEmotionalDelta`, and `detectEscalationSignals`.
+- Functional tests to cover: emotional whiplash detection, scene persistence, phase advancement enforcement, memory-scar recall, and silence interpretation.
 
-The latest documentation is at [https://docs.chub.ai/docs/stages](https://docs.chub.ai/docs/stages).
+### Run locally
+Install dependencies and run the dev runner (project is a stage template):
 
-# Quickstart
-
-You'll need node@21.7.1 and yarn installed.
-Then, to get started:
-
-``` 
-git clone https://github.com/CharHubAI/stage-template
-cd stage-template
+```bash
 yarn install
 yarn dev
 ```
 
-The class you'll need to fill out and implement is in src/Stage.tsx.
+`src/TestRunner.tsx` will be used during development to simulate chat interactions.
 
-When running locally, as there is no chat UI/running chat, src/TestRunner.tsx is run. This only runs in development.
-Please modify it to test whatever you need.
+## Packaging & publishing
+- Update `chub_meta.yaml` with stage metadata (name `romance-realism-pack`, tags `romance`, `realism`, `slow-burn`, `roleplay`, scope `chat`).
+- Use the repository's GitHub Actions workflow to publish; set `CHUB_AUTH_TOKEN` in repository secrets.
 
-This project uses GitHub actions to update the stage in Chub on 
-commits to the main branch. For your project to do this,
-you'll need to get a stage auth token from [the api](https://api.chub.ai/openapi/swagger#/User%20Account/create_projects_token_account_tokens_projects_post).
+## Contributing
+- Keep fixes focused and test-driven. Avoid adding external network calls or UI components.
 
-Then in the GitHub project, go to Settings -> Secrets and Variables -> Actions ->
-Repository secrets -> New Repository Secret. Add the token with the name "CHUB_AUTH_TOKEN".
+---
 
-The use of an IDE like Intellij is very strongly recommended.
+If you'd like, I can also:
+- add unit tests for the main heuristics,
+- run TypeScript type checks and fix any issues,
+- or prepare a minimal `chub_meta.yaml` and package metadata.
+

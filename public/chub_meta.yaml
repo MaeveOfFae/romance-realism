@@ -2,30 +2,24 @@
 #   in which case these values can be managed in the UI.
 
 # The name of the stage.
-# project_name: "Stage Template"
+project_name: "Romance Realism Pack"
 
 # A short tagline to show in search.
-# tagline: "A base template for all stages."
+tagline: "Invisible guardrails for slow-burn romance RP"
 
 # 'PUBLIC', 'PRIVATE', or 'UNLISTED'.
-# visibility: 'PUBLIC'
+visibility: 'PUBLIC'
 
 # 'ADJACENT' | 'NONE' | 'COVER' | 'FULLSCREEN'
-# 'ADJACENT' is default. The frame will display on the side of the
-#   chat on desktop and above/in the top half of the chat on mobile.
-# 'NONE' will not display, only run.
-# 'COVER' will, indeed, cover the chat history completely,
-#   but leave the text input box.
-# 'FULLSCREEN' will make nothing below the header bar
-#   show except for your stage.
-# position: 'ADJACENT'
+# 'NONE' indicates this stage runs in the background with no UI.
+position: 'NONE'
 
 # Self-explanatory.
-# tags:
-#  - 'Stage'
-#  - 'Admin'
-#  - 'Template'
-#  - 'Base'
+tags:
+  - 'romance'
+  - 'realism'
+  - 'slow-burn'
+  - 'roleplay'
 
 # The schema of any user-supplied config.
 # If your stage requires a configuration but has no
