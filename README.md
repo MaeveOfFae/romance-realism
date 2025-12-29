@@ -32,12 +32,13 @@ The stage accepts a small, null-safe config object. Missing values fall back to 
 Use `normalizeConfig` from `src/config_schema.ts` when reading config to ensure values are clamped and safe.
 
 ## Developer notes
+
 - The Stage is background-only and must not render UI. Keep `render()` returning `null`.
 - Lifecycle responsibilities:
-	- `load()` initializes any async resources (returns `success: true` by default).
-	- `beforePrompt()` attaches a concise scene summary as a system message when available.
-	- `afterResponse()` runs analysis hooks: emotion snapshot, delta evaluation, scene capture, escalation signals, memory scar logging.
-	- `setState()` restores message-level persisted state after branch navigation.
+- `load()` initializes any async resources (returns `success: true` by default).
+- `beforePrompt()` attaches a concise scene summary as a system message when available.
+- `afterResponse()` runs analysis hooks: emotion snapshot, delta evaluation, scene capture, escalation signals, memory scar logging.
+- `setState()` restores message-level persisted state after branch navigation.
 - All heuristics are intentionally lightweight and heuristic-first for easy unit testing and iteration.
 
 ## Testing
