@@ -44,6 +44,14 @@ test("detectEscalationSignals: returns expected signal types", () => {
     assert.equal(types.has("physical_closeness"), true);
 });
 
+test("detectEscalationSignals: avoids time-context false positives", () => {
+    const signals = detectEscalationSignals(
+        "It was close to midnight when they arrived.",
+        {tone: "neutral", intensity: "low"},
+    );
+    assert.equal(signals.some((s) => s.type === "physical_closeness"), false);
+});
+
 test("extractEmotionSnapshot: detects high intensity cues", () => {
     const snapshot = extractEmotionSnapshot("I love you!!! I'm shaking.");
     assert.equal(snapshot.tone, "affection");
@@ -61,6 +69,11 @@ test("detectConsentIssues: flags coercion patterns", () => {
     assert.equal(issues.includes("forces decisions/consent onto the user"), true);
 });
 
+test("detectConsentIssues: avoids vague 'you realize' phrasing", () => {
+    const issues = detectConsentIssues("You realize it's late.");
+    assert.equal(issues.includes("describes internal monologue for the user"), false);
+});
+
 test("detectMemoryEvents: can emit multiple unique events", () => {
     const events = detectMemoryEvents("He comes clean. He lied to you.");
     assert.equal(events.includes("confession"), true);
@@ -70,4 +83,9 @@ test("detectMemoryEvents: can emit multiple unique events", () => {
 test("updateSceneFromMessage: detects time-of-day variants", () => {
     const scene = updateSceneFromMessage(null, "It was late night when they arrived.", {tone: "neutral", intensity: "low"});
     assert.equal(scene.timeOfDay, "late night");
+});
+
+test("updateSceneFromMessage: avoids vague location extraction", () => {
+    const scene = updateSceneFromMessage(null, "In the end, you both leave.", {tone: "neutral", intensity: "low"});
+    assert.equal(scene.location ?? null, null);
 });

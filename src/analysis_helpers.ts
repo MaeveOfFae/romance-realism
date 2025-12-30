@@ -168,12 +168,16 @@ export function detectEscalationSignals(content: string, snapshot: EmotionSnapsh
         pushUnique({type: 'dependency', suggestedPhase: 'Charged', text: t.slice(0, 200)});
     }
 
-    if (/\b(hugs?|kiss(?:es|ed|ing)?|hold(?:s|ing)?|embrace(?:s|d)?|press(?:es|ed)?|wraps? (?:an?|their) arm|takes? (?:your|his|her|their) hand|interlaces fingers|leans? in|moves? closer|close to)\b/i.test(t)) {
+    if (/\b(hugs?|embrace(?:s|d)?|cuddl(?:e|es|ed|ing)|wraps? (?:an?|their) arm|takes? (?:your|his|her|their) hand|interlaces fingers|holds hands|leans? in|moves? closer|closes the distance|press(?:es|ed)? against|rests? (?:a|his|her|their) hand (?:on|against) (?:your|his|her|their) (?:arm|shoulder|waist|back))\b/i.test(t)) {
         pushUnique({type: 'physical_closeness', suggestedPhase: 'Charged', text: t.slice(0, 200)});
     }
 
     if (/\b(kiss(?:es|ed|ing)? on the lips|making love|have sex|sex\b|intercourse|nude|strip(?:s|ped|ping)?|undress(?:es|ed)?|moan(?:s|ed|ing)?|orgasm)\b/i.test(t)) {
         pushUnique({type: 'physical_intimacy', suggestedPhase: 'Intimate', text: t.slice(0, 200)});
+    }
+
+    if (/\b(you'?re (?:beautiful|pretty|gorgeous|handsome)|can'?t stop looking at you|you look (?:good|amazing)|so cute|so hot|you smell (?:good|nice))\b/i.test(t)) {
+        pushUnique({type: 'attraction_language', suggestedPhase: 'Familiar', text: t.slice(0, 200)});
     }
 
     if (/\b(I love you|in love|falling for you|can'?t stop thinking about you)\b/i.test(t)) {
@@ -200,10 +204,33 @@ export function detectMemoryEvents(content: string): string[] {
     const t = content;
     const hits = new Set<string>();
 
-    if (/\b(confess(?:ed)?|admit(?:s|ted)?|come(?:s|ing)? clean|the truth is)\b/i.test(t)) hits.add('confession');
-    if (/\b(betray(?:s|ed)?|cheat(?:s|ed|ing)?|deceiv(?:e|es|ed)|gaslight(?:s|ed|ing)?|lie(?:s|d)? to)\b/i.test(t)) hits.add('betrayal');
-    if (/\b(reject(?:s|ed)?|turns you down|pushes you away|not interested|breaks up|says no)\b/i.test(t)) hits.add('rejection');
-    if (/\b(argue(?:s|d)?|fight(?:s|ing)?|conflict|shout(?:s|ed|ing)?|yell(?:s|ed|ing)?|storm(?:s|ed)? off|slams? the door|snaps? at)\b/i.test(t)) hits.add('conflict');
+    if (
+        /\b(confess(?:ed)?|admit(?:s|ted)?|come(?:s|ing)? clean|the truth is)\b/i.test(t) ||
+        /\b(I (?:need|have) to be honest|I have to tell you something|I should tell you|I owe you the truth)\b/i.test(t)
+    ) {
+        hits.add('confession');
+    }
+
+    if (
+        /\b(betray(?:s|ed)?|cheat(?:s|ed|ing)?|deceiv(?:e|es|ed)|gaslight(?:s|ed|ing)?|lie(?:s|d)? to)\b/i.test(t) ||
+        /\b(hid(?:es|ing)? it|kept it from you|kept this from you|went behind your back)\b/i.test(t)
+    ) {
+        hits.add('betrayal');
+    }
+
+    if (
+        /\b(reject(?:s|ed)?|turns you down|pushes you away|not interested|breaks up|says no)\b/i.test(t) ||
+        /\b(let'?s just be friends|I don'?t feel that way|not like that|I can'?t be with you|we shouldn'?t)\b/i.test(t)
+    ) {
+        hits.add('rejection');
+    }
+
+    if (
+        /\b(argue(?:s|d)?|fight(?:s|ing)?|conflict|shout(?:s|ed|ing)?|yell(?:s|ed|ing)?|storm(?:s|ed)? off|slams? the door|snaps? at)\b/i.test(t) ||
+        /\b(gives the silent treatment|won'?t talk to|refuses to speak)\b/i.test(t)
+    ) {
+        hits.add('conflict');
+    }
 
     return Array.from(hits);
 }
@@ -326,7 +353,7 @@ export function detectConsentIssues(content: string): string[] {
         issues.add('coercive physical action');
     }
 
-    if (/\b(inside your mind|your thoughts say|your inner voice|you think to yourself|you realize|you decide)\b/i.test(t)) {
+    if (/\b(inside your mind|your thoughts say|your inner voice|you think to yourself|you think|you wonder|you remember)\b/i.test(t)) {
         issues.add('describes internal monologue for the user');
     }
 
@@ -358,7 +385,26 @@ export function updateSceneFromMessage(prev: SceneState | null | undefined, cont
     const scene: SceneState = Object.assign({}, prev || {});
     const t = content;
     const locMatch = t.match(/\b(?:at|in|inside|into|on|by)\s+(?:the|a|an)\s+([A-Za-z0-9'’\- ]{3,60})\b/i);
-    if (locMatch) scene.location = locMatch[1].trim();
+    if (locMatch) {
+        const candidate = locMatch[1].trim();
+        const normalized = candidate.toLowerCase().replace(/\s+/g, " ").trim();
+        const stop = new Set([
+            "end",
+            "beginning",
+            "middle",
+            "moment",
+            "meantime",
+            "morning",
+            "afternoon",
+            "evening",
+            "night",
+            "dark",
+            "light",
+        ]);
+        if (!stop.has(normalized) && !/^(end|the end|the beginning|the moment|the meantime)$/.test(normalized)) {
+            scene.location = candidate;
+        }
+    }
 
     const tod = /\b(early morning|morning|afternoon|evening|late night|night|noon|midnight|dawn|dusk|tonight)\b/i.exec(t);
     if (tod) scene.timeOfDay = tod[1].toLowerCase().replace(/\s+/g, " ");
