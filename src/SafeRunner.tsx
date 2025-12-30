@@ -16,13 +16,15 @@ export type SafeRunnerProps = {
 export const SafeRunner = ({factory, debug = false}: SafeRunnerProps) => {
     const [stage, setStage] = useState<any>(null);
     const [node, setNode] = useState(new Date());
-    const [previous, setPrevious] = useState<{key: string; value: any}>({key: '', value: {}});
+    const [previous, setPrevious] = useState<{key: string | null; value: any}>({key: null, value: {}});
 
-    function safeKey(messageType: string, data: any): string {
+    // Only dedupe INIT; other message types should always run to avoid skipping auto-responses.
+    function safeKey(messageType: string, data: any): string | null {
+        if (messageType !== INIT) return null;
         try {
             return messageType + ': ' + JSON.stringify(data);
         } catch {
-            return messageType + ': <<unserializable>>';
+            return null;
         }
     }
 
@@ -42,7 +44,8 @@ export const SafeRunner = ({factory, debug = false}: SafeRunnerProps) => {
                 }
 
                 const answerKey = safeKey(messageType, data);
-                if (previous.key === answerKey) {
+                const canUseCache = answerKey != null && previous.key === answerKey;
+                if (canUseCache) {
                     if (debug) console.debug('Stage iFrame: returning cached response');
                     sendMessage(messageType, previous.value);
                     return;
@@ -51,7 +54,7 @@ export const SafeRunner = ({factory, debug = false}: SafeRunnerProps) => {
                 if (messageType === INIT) {
                     if (stage != null) {
                         const response = {...DEFAULT_LOAD_RESPONSE};
-                        setPrevious({key: answerKey, value: response});
+                        if (answerKey) setPrevious({key: answerKey, value: response});
                         sendMessage(INIT, response);
                         return;
                     }
@@ -59,7 +62,7 @@ export const SafeRunner = ({factory, debug = false}: SafeRunnerProps) => {
                         const newStage = factory({...DEFAULT_INITIAL, ...data});
                         const loadResult = await newStage.load();
                         const response = {...DEFAULT_LOAD_RESPONSE, ...loadResult};
-                        setPrevious({key: answerKey, value: response});
+                        if (answerKey) setPrevious({key: answerKey, value: response});
                         sendMessage(INIT, response);
                         setStage(newStage);
                         return;
@@ -67,7 +70,7 @@ export const SafeRunner = ({factory, debug = false}: SafeRunnerProps) => {
                         const msg = e instanceof Error ? e.message : String(e);
                         console.error('Stage INIT error:', e);
                         const response = {...DEFAULT_LOAD_RESPONSE, success: false, error: msg};
-                        setPrevious({key: answerKey, value: response});
+                        if (answerKey) setPrevious({key: answerKey, value: response});
                         sendMessage(INIT, response);
                         return;
                     }
@@ -76,7 +79,6 @@ export const SafeRunner = ({factory, debug = false}: SafeRunnerProps) => {
                 if (stage == null) {
                     if (debug) console.debug('Stage iFrame: message received before INIT', messageType);
                     const response = {...DEFAULT_RESPONSE, error: 'Stage not initialized.'};
-                    setPrevious({key: answerKey, value: response});
                     sendMessage(messageType, response);
                     return;
                 }
@@ -84,7 +86,6 @@ export const SafeRunner = ({factory, debug = false}: SafeRunnerProps) => {
                 if (messageType === BEFORE) {
                     const beforeResponse = await stage.beforePrompt({...data});
                     const response = {...DEFAULT_RESPONSE, ...beforeResponse};
-                    setPrevious({key: answerKey, value: response});
                     sendMessage(BEFORE, response);
                     return;
                 }
@@ -92,14 +93,12 @@ export const SafeRunner = ({factory, debug = false}: SafeRunnerProps) => {
                 if (messageType === AFTER) {
                     const afterResponse = await stage.afterResponse({...data});
                     const response = {...DEFAULT_RESPONSE, ...afterResponse};
-                    setPrevious({key: answerKey, value: response});
                     sendMessage(AFTER, response);
                     return;
                 }
 
                 if (messageType === SET) {
                     await stage.setState(data);
-                    setPrevious({key: answerKey, value: {}});
                     sendMessage(SET, {});
                     return;
                 }
