@@ -1,4 +1,4 @@
-import type {ReactElement} from "react";
+import React, {useEffect, useState, type ReactElement} from "react";
 import {StageBase, StageResponse, InitialData, Message} from "@chub-ai/stages-ts";
 import {LoadResponse} from "@chub-ai/stages-ts/dist/types/load";
 import {DEFAULT_CONFIG, normalizeConfig, NormalizedConfig} from "./config_schema";
@@ -24,6 +24,7 @@ type MessageStateType = {
     consentAlerts?: number[];
     silenceHistory?: number[];
     driftNotes?: number[];
+    overlayNotes?: Array<{text: string; at: number}>;
     [key: string]: any;
 };
 
@@ -112,7 +113,8 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
             lastEmotions: [],
             memoryScars: [],
             proximity: "Distant",
-            phase: "Neutral"
+            phase: "Neutral",
+            overlayNotes: [],
         };
         this.myInternalState['numUsers'] = users ? Object.keys(users).length : 0;
         this.myInternalState['numChars'] = characters ? Object.keys(characters).length : 0;
@@ -397,6 +399,10 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         }
 
         if (systemMessage != null) {
+            // keep a small buffer of recent notes for the in-iframe dropdown
+            this.myInternalState.overlayNotes = (this.myInternalState.overlayNotes || [])
+                .concat([{text: systemMessage, at: Date.now()}])
+                .slice(-10);
             (this.myInternalState as any).systemNoteHistory = recentSystemNotes.concat([turnIndex]).slice(-100);
         }
 
@@ -440,9 +446,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
            @link https://github.com/akarlsten/cuberun (Source)
            @link https://cuberun.adamkarlsten.com/ (Demo)
          ***/
-        // This stage is background-only and must not render UI.
-        // Return an empty fragment to satisfy the base type while producing no visible UI.
-        return <></>;
+        return <NoticeOverlay stageRef={this} />;
     }
 
     // -----------------
@@ -598,4 +602,76 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         return scene;
     }
 
+}
+
+// Lightweight, non-intrusive dropdown to surface recent system notes inside the iframe.
+// Polls the stage instance for recent overlay notes and renders a toggleable list.
+function NoticeOverlay({stageRef}: {stageRef: any}) {
+    const [open, setOpen] = useState(false);
+    const [tick, setTick] = useState(0);
+
+    useEffect(() => {
+        const id = window.setInterval(() => setTick((t) => t + 1), 1000);
+        return () => window.clearInterval(id);
+    }, []);
+
+    const notes = (stageRef?.myInternalState?.overlayNotes as Array<{text: string; at: number}> | undefined) || [];
+    if (notes.length === 0) return <></>;
+
+    const latest = [...notes].slice(-5).reverse();
+
+    return (
+        <div style={{
+            position: 'fixed',
+            bottom: '12px',
+            right: '12px',
+            zIndex: 2147483647,
+            fontFamily: 'Inter, system-ui, sans-serif',
+            color: '#111',
+        }}>
+            <button
+                type="button"
+                onClick={() => setOpen((v) => !v)}
+                style={{
+                    background: '#f4f4f4',
+                    border: '1px solid #d0d0d0',
+                    borderRadius: '16px',
+                    padding: '6px 10px',
+                    boxShadow: '0 2px 6px rgba(0,0,0,0.12)',
+                    cursor: 'pointer',
+                    fontSize: '12px',
+                }}
+                aria-expanded={open}
+                aria-label="Show romance realism notes"
+            >
+                Realism notes ({notes.length})
+            </button>
+            {open && (
+                <div
+                    style={{
+                        marginTop: '6px',
+                        width: '260px',
+                        maxHeight: '240px',
+                        overflowY: 'auto',
+                        background: '#fff',
+                        border: '1px solid #d0d0d0',
+                        borderRadius: '12px',
+                        boxShadow: '0 8px 18px rgba(0,0,0,0.16)',
+                        padding: '10px',
+                        fontSize: '12px',
+                        lineHeight: 1.4,
+                    }}
+                >
+                    {latest.map((n, idx) => (
+                        <div key={`${n.at}-${idx}`} style={{marginBottom: idx === latest.length - 1 ? 0 : '10px'}}>
+                            <div style={{fontWeight: 600, fontSize: '11px', color: '#555'}}>
+                                Note • {new Date(n.at).toLocaleTimeString()}
+                            </div>
+                            <div style={{marginTop: '2px', whiteSpace: 'pre-wrap'}}>{n.text}</div>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
 }
