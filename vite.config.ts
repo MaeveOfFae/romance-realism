@@ -6,6 +6,7 @@ import { resolve } from 'path'
 export default defineConfig(({ command, mode }) => {
     if (mode != 'lib') {
         return {
+            base: './',
             plugins: [react()]
         }
     } else {
