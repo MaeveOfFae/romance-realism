@@ -157,6 +157,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         if (state != null) {
             // Restore message-level persisted state on swipe/jump
             this.myInternalState = {...this.myInternalState, ...state};
+            if (!Array.isArray(this.myInternalState.overlayNotes)) this.myInternalState.overlayNotes = [];
             // enforce caps (memory depth)
             const depth = ((this as any)._effectiveConfig?.memory_depth) || this.defaultConfig.memory_depth;
             if (Array.isArray(this.myInternalState.memoryScars)) {
@@ -618,7 +619,7 @@ function NoticeOverlay({stageRef}: {stageRef: any}) {
 
     const notes = (stageRef?.myInternalState?.overlayNotes as Array<{text: string; at: number}> | undefined) || [];
     const latest = useMemo(() => [...notes].slice(-5).reverse(), [notes, tick]);
-    if (latest.length === 0) return <></>;
+    const hasNotes = latest.length > 0;
 
     const body = typeof document !== 'undefined' ? document.body : null;
     if (!body) return <></>;
@@ -631,7 +632,7 @@ function NoticeOverlay({stageRef}: {stageRef: any}) {
             zIndex: 2147483647,
             fontFamily: 'Inter, system-ui, sans-serif',
             color: '#111',
-            pointerEvents: 'none',
+            pointerEvents: 'auto',
         }}>
             <button
                 type="button"
@@ -649,7 +650,7 @@ function NoticeOverlay({stageRef}: {stageRef: any}) {
                 aria-expanded={open}
                 aria-label="Show romance realism notes"
             >
-                Realism notes ({notes.length})
+                {`Realism notes${hasNotes ? ` (${notes.length})` : ''}`}
             </button>
             {open && (
                 <div
@@ -668,6 +669,11 @@ function NoticeOverlay({stageRef}: {stageRef: any}) {
                         pointerEvents: 'auto',
                     }}
                 >
+                    {!hasNotes && (
+                        <div style={{fontSize: '12px', color: '#666'}}>
+                            No notes yet. Notes will appear when the stage emits guidance.
+                        </div>
+                    )}
                     {latest.map((n, idx) => (
                         <div key={`${n.at}-${idx}`} style={{marginBottom: idx === latest.length - 1 ? 0 : '10px'}}>
                             <div style={{fontWeight: 600, fontSize: '11px', color: '#555'}}>
