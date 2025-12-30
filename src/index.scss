@@ -5,16 +5,15 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
-// Ensure that everything is transparent,
-// so that the chat page can be seen through the stage
-* {
-  background-color: transparent !important;
-}
-
 html, body, #root {
   margin: 0;
   padding: 0;
-  // This stage is intended to be non-interactive and should not eat clicks meant for the chat.
+  background-color: transparent;
+}
+
+// Default: do not eat clicks meant for the chat host.
+// Note: avoid disabling pointer-events on `html`/`body`, so dev overlays (portals) can still be interactive.
+#root {
   pointer-events: none;
 }
 

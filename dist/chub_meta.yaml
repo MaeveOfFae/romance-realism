@@ -12,7 +12,7 @@ visibility: 'PUBLIC'
 
 # 'ADJACENT' | 'NONE' | 'COVER' | 'FULLSCREEN'
 # 'NONE' indicates this stage runs in the background with no UI.
-position: 'NONE'
+position: 'ADJACENT'
 
 # Self-explanatory.
 tags:
