@@ -1,4 +1,5 @@
-import React, {useEffect, useState, type ReactElement} from "react";
+import React, {useEffect, useMemo, useState, type ReactElement} from "react";
+import {createPortal} from "react-dom";
 import {StageBase, StageResponse, InitialData, Message} from "@chub-ai/stages-ts";
 import {LoadResponse} from "@chub-ai/stages-ts/dist/types/load";
 import {DEFAULT_CONFIG, normalizeConfig, NormalizedConfig} from "./config_schema";
@@ -616,11 +617,13 @@ function NoticeOverlay({stageRef}: {stageRef: any}) {
     }, []);
 
     const notes = (stageRef?.myInternalState?.overlayNotes as Array<{text: string; at: number}> | undefined) || [];
-    if (notes.length === 0) return <></>;
+    const latest = useMemo(() => [...notes].slice(-5).reverse(), [notes, tick]);
+    if (latest.length === 0) return <></>;
 
-    const latest = [...notes].slice(-5).reverse();
+    const body = typeof document !== 'undefined' ? document.body : null;
+    if (!body) return <></>;
 
-    return (
+    const overlay = (
         <div style={{
             position: 'fixed',
             bottom: '12px',
@@ -628,6 +631,7 @@ function NoticeOverlay({stageRef}: {stageRef: any}) {
             zIndex: 2147483647,
             fontFamily: 'Inter, system-ui, sans-serif',
             color: '#111',
+            pointerEvents: 'none',
         }}>
             <button
                 type="button"
@@ -640,6 +644,7 @@ function NoticeOverlay({stageRef}: {stageRef: any}) {
                     boxShadow: '0 2px 6px rgba(0,0,0,0.12)',
                     cursor: 'pointer',
                     fontSize: '12px',
+                    pointerEvents: 'auto',
                 }}
                 aria-expanded={open}
                 aria-label="Show romance realism notes"
@@ -660,6 +665,7 @@ function NoticeOverlay({stageRef}: {stageRef: any}) {
                         padding: '10px',
                         fontSize: '12px',
                         lineHeight: 1.4,
+                        pointerEvents: 'auto',
                     }}
                 >
                     {latest.map((n, idx) => (
@@ -674,4 +680,6 @@ function NoticeOverlay({stageRef}: {stageRef: any}) {
             )}
         </div>
     );
+
+    return createPortal(overlay, body);
 }
