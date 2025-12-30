@@ -209,7 +209,8 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
                 messageState: {...this.myInternalState},
                 modifiedMessage: null,
                 systemMessage: null,
-                error: `Stage error (beforePrompt): ${msg}`,
+                // Do not surface an error to avoid blocking chat; log only.
+                error: null,
                 chatState: (this as any)._chatState || null,
             };
         }
@@ -410,7 +411,8 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
                 messageState: this.myInternalState,
                 modifiedMessage: null,
                 systemMessage: null,
-                error: `Stage error (afterResponse): ${msg}`,
+                // Do not surface an error to avoid blocking chat; log only.
+                error: null,
                 chatState: (this as any)._chatState || null,
             };
         }
