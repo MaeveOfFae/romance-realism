@@ -17,18 +17,22 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@chub-ai/stages-ts": "^0.3.7",
+    "@chub-ai/stages-ts": "^0.5.2",
     "@typescript-eslint/parser": "^7.4.0",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "vite-plugin-dts": "^3.9.1"
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "vite-plugin-dts": "^3.9.1",
+    "@modelcontextprotocol/sdk": "^1.18.2",
+    "zod": "^3.25.76",
+    "zod-to-json-schema": "^3.23.5",
+    "ajv-formats": "^2.1.1"
   },
   "engines": {
     "node": "21.7.1"
   },
   "devDependencies": {
-    "@types/react": "^18.2.66",
-    "@types/react-dom": "^18.2.22",
+    "@types/react": "^18.3.5",
+    "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.2.1",
     "eslint": "^8.57.0",
     "eslint-plugin-react-hooks": "^4.6.0",
