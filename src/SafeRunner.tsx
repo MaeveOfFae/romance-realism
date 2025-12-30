@@ -37,7 +37,12 @@ export const SafeRunner = ({factory, debug = false}: SafeRunnerProps) => {
                         // Always create a fresh stage on INIT to avoid stale state across replays.
                         const newStage = factory({...DEFAULT_INITIAL, ...data});
                         const loadResult = await newStage.load();
-                        const response = {...DEFAULT_LOAD_RESPONSE, ...loadResult};
+                        const response = {
+                            ...DEFAULT_LOAD_RESPONSE,
+                            ...loadResult,
+                            messageState: loadResult?.messageState ?? newStage?.myInternalState ?? null,
+                            chatState: loadResult?.chatState ?? (newStage as any)?._chatState ?? null,
+                        };
                         sendMessage(INIT, response);
                         setStage(newStage);
                         return;
@@ -60,7 +65,16 @@ export const SafeRunner = ({factory, debug = false}: SafeRunnerProps) => {
                 if (messageType === BEFORE) {
                     try {
                         const beforeResponse = await stage.beforePrompt({...data});
-                        const response = {...DEFAULT_RESPONSE, ...beforeResponse};
+                        const response = {
+                            ...DEFAULT_RESPONSE,
+                            ...beforeResponse,
+                            messageState: (beforeResponse && beforeResponse.messageState != null)
+                                ? beforeResponse.messageState
+                                : stage?.myInternalState ?? null,
+                            chatState: (beforeResponse && beforeResponse.chatState != null)
+                                ? beforeResponse.chatState
+                                : stage?._chatState ?? null,
+                        };
                         sendMessage(BEFORE, response); // no caching — avoid skipping auto-responses
                     } catch (e) {
                         const msg = e instanceof Error ? e.message : String(e);
@@ -80,7 +94,16 @@ export const SafeRunner = ({factory, debug = false}: SafeRunnerProps) => {
                 if (messageType === AFTER) {
                     try {
                         const afterResponse = await stage.afterResponse({...data});
-                        const response = {...DEFAULT_RESPONSE, ...afterResponse};
+                        const response = {
+                            ...DEFAULT_RESPONSE,
+                            ...afterResponse,
+                            messageState: (afterResponse && afterResponse.messageState != null)
+                                ? afterResponse.messageState
+                                : stage?.myInternalState ?? null,
+                            chatState: (afterResponse && afterResponse.chatState != null)
+                                ? afterResponse.chatState
+                                : stage?._chatState ?? null,
+                        };
                         sendMessage(AFTER, response); // no caching — avoid skipping auto-responses
                     } catch (e) {
                         const msg = e instanceof Error ? e.message : String(e);
@@ -99,7 +122,10 @@ export const SafeRunner = ({factory, debug = false}: SafeRunnerProps) => {
                 if (messageType === SET) {
                     try {
                         await stage.setState(data);
-                        sendMessage(SET, {}); // no caching — always acknowledge
+                        sendMessage(SET, {
+                            messageState: stage?.myInternalState ?? null,
+                            chatState: stage?._chatState ?? null,
+                        }); // no caching — always acknowledge
                     } catch (e) {
                         const msg = e instanceof Error ? e.message : String(e);
                         console.error('Stage SET error:', e);
