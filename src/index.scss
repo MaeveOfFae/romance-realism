@@ -11,10 +11,35 @@ html, body, #root {
   background-color: transparent;
 }
 
+.app-shell {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  min-height: 100vh;
+  background: radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.08), transparent 30%),
+  radial-gradient(circle at 80% 0%, rgba(255, 0, 80, 0.12), transparent 32%),
+  linear-gradient(145deg, #0e0f1a 0%, #0a0b14 60%, #0f0c1f 100%);
+  color: #f4f1ff;
+  font-family: "Inter", "DM Sans", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+}
+
+.app-pane {
+  padding: clamp(16px, 2vw, 32px);
+  overflow: auto;
+}
+
+.demo-pane {
+  border-left: 1px solid rgba(255, 255, 255, 0.06);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.02) 0%, rgba(255, 255, 255, 0) 100%);
+}
+
 // Default: do not eat clicks meant for the chat host.
 // Note: avoid disabling pointer-events on `html`/`body`, so dev overlays (portals) can still be interactive.
 #root {
   pointer-events: none;
+}
+
+#root .app-shell {
+  pointer-events: auto;
 }
 
 // Local dev overlay utilities (used by TestRunner only).
@@ -29,6 +54,228 @@ html, body, #root {
     overflow: visible !important;
     pointer-events: auto;
   }
+}
+
+.playground-shell {
+  position: relative;
+  overflow: hidden;
+  min-height: 100%;
+  padding: clamp(20px, 3vw, 36px);
+}
+
+.playground-bg {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  filter: drop-shadow(0 0 12px rgba(255, 107, 160, 0.2));
+}
+
+.heart {
+  position: absolute;
+  width: 200px;
+  height: 200px;
+  background: radial-gradient(circle at 30% 30%, rgba(255, 107, 160, 0.32), transparent 70%);
+  transform: rotate(45deg);
+  opacity: 0.5;
+}
+
+.heart::before,
+.heart::after {
+  content: "";
+  position: absolute;
+  width: 200px;
+  height: 200px;
+  background: radial-gradient(circle at 70% 70%, rgba(255, 107, 160, 0.18), transparent 70%);
+  border-radius: 50%;
+}
+
+.heart::before { left: -100px; top: 0; }
+.heart::after { left: 0; top: -100px; }
+
+.h1 { top: -40px; left: 6%; animation: float 10s ease-in-out infinite; }
+.h2 { top: 20%; right: 6%; animation: float 12s ease-in-out infinite reverse; }
+.h3 { bottom: -60px; left: 32%; animation: float 14s ease-in-out infinite; }
+
+.glow {
+  position: absolute;
+  width: 420px;
+  height: 420px;
+  background: radial-gradient(circle, rgba(129, 161, 255, 0.2) 0%, rgba(129, 161, 255, 0) 60%);
+  filter: blur(14px);
+}
+
+.g1 { top: -60px; right: 18%; animation: drift 16s linear infinite; }
+.g2 { bottom: -80px; left: 10%; animation: drift 18s linear infinite reverse; }
+
+@keyframes float {
+  0%, 100% { transform: translateY(0) rotate(45deg); }
+  50% { transform: translateY(-12px) rotate(45deg); }
+}
+
+@keyframes drift {
+  0% { transform: translateX(0); }
+  50% { transform: translateX(22px); }
+  100% { transform: translateX(0); }
+}
+
+.playground-hero {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 720px;
+}
+
+.playground-hero h1 {
+  margin: 0;
+  font-size: clamp(26px, 3vw, 40px);
+  letter-spacing: -0.02em;
+}
+
+.playground-hero p {
+  margin: 0;
+  color: rgba(244, 241, 255, 0.82);
+  font-size: 16px;
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #f381c1;
+  font-size: 12px;
+}
+
+.hero-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.pill {
+  border: none;
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: linear-gradient(120deg, #ff7eb6, #8ab6ff);
+  color: #0b0c14;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 10px 30px rgba(255, 126, 182, 0.25);
+  transition: transform 180ms ease, box-shadow 180ms ease;
+}
+
+.pill:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 36px rgba(255, 126, 182, 0.3);
+}
+
+.idea-chip {
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #f4f1ff;
+  font-weight: 600;
+}
+
+.playground-grid {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  margin: 22px 0 10px;
+}
+
+.glass-card {
+  padding: 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.18);
+  backdrop-filter: blur(8px);
+}
+
+.card-title {
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.playground-interact {
+  position: relative;
+  z-index: 1;
+  margin: 18px 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.control {
+  padding: 14px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.02) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.label {
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.slider-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.badge {
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  font-weight: 700;
+}
+
+.badge.vibe { color: #8ab6ff; border-color: rgba(138, 182, 255, 0.4); }
+
+.hint {
+  margin: 6px 0 0;
+  color: rgba(244, 241, 255, 0.72);
+  font-size: 14px;
+}
+
+.playground-footer {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.chip {
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  font-weight: 600;
+}
+
+input[type="range"] {
+  flex: 1;
+  accent-color: #ff7eb6;
+}
+
+@media (max-width: 960px) {
+  .app-shell { grid-template-columns: 1fr; }
+  .demo-pane { border-left: none; border-top: 1px solid rgba(255, 255, 255, 0.06); }
 }
 
 .devUiButton {
