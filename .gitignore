@@ -24,7 +24,6 @@ types/
 *.sw?
 .idea/
 *.zip
-dist/
 creation.json
 *.trash
 *.tgz

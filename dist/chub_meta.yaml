@@ -1,0 +1,76 @@
+# All of these fields are optional, as is this file itself,
+#   in which case these values can be managed in the UI.
+
+# The name of the stage.
+project_name: "Romance Realism Pack"
+
+# A short tagline to show in search.
+tagline: "Invisible guardrails for slow-burn romance RP"
+
+# 'PUBLIC', 'PRIVATE', or 'UNLISTED'.
+visibility: 'PUBLIC'
+
+# 'ADJACENT' | 'NONE' | 'COVER' | 'FULLSCREEN'
+# 'NONE' indicates this stage runs in the background with no UI.
+position: 'NONE'
+
+# Self-explanatory.
+tags:
+  - 'romance'
+  - 'realism'
+  - 'slow-burn'
+  - 'roleplay'
+
+# The schema of any user-supplied config.
+# If your stage requires a configuration but has no
+#   defined schema, it won't work.
+config_schema:
+  type: object
+  properties:
+    enabled:
+      type: boolean
+      default: true
+    strictness:
+      type: integer
+      minimum: 1
+      maximum: 3
+      default: 2
+    memory_depth:
+      type: integer
+      minimum: 5
+      maximum: 30
+      default: 15
+  additionalProperties: true
+
+# The schema of the state that you store.
+# This isn't needed even if you do store state,
+#   and is here more for future use cases to
+#   optimize storage.
+state_schema:
+  init:
+    type: object
+  message:
+    type: object
+  chat:
+    type: object
+  additionalProperties: true
+
+# Whether to publish as 'Anonymous' instead of under your username.
+# is_anonymous: false
+
+# Self-explanatory.
+# ratings_disabled: false
+
+# This is here for future cases where ex. you need user secrets,
+#    but currently does nothing.
+# permissions:
+
+# extension_id is automatically generated on push with a new project;
+#    you should not make or set this value.
+# github_path will be added if it does not exist. It is the URL of the repo.
+
+
+github_path: 'https://github.com/MaeveOfFae/romance-realism'
+
+
+extension_id: 'romance-realism-a24837dc9da4'
