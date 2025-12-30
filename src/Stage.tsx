@@ -141,7 +141,8 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
             chatState: null,
             // Provide an initial state so hosts have a registry entry even before the first message.
             messageState: {...this.myInternalState},
-        };
+            state: {...this.myInternalState},
+        } as any;
     }
 
     async setState(state: MessageStateType): Promise<void> {
@@ -198,23 +199,25 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
             return {
                 stageDirections: null,
                 messageState,
+                state: messageState,
                 modifiedMessage: null,
                 systemMessage,
                 error: null,
                 chatState: currentChatState || null,
-            };
+            } as any;
         } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
             console.error('Stage beforePrompt error:', e);
             return {
                 stageDirections: null,
                 messageState: {...this.myInternalState},
+                state: {...this.myInternalState},
                 modifiedMessage: null,
                 systemMessage: null,
                 // Do not surface an error to avoid blocking chat; log only.
                 error: null,
                 chatState: (this as any)._chatState || null,
-            };
+            } as any;
         }
     }
 
@@ -400,23 +403,25 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
             return {
                 stageDirections: null,
                 messageState: this.myInternalState,
+                state: this.myInternalState,
                 modifiedMessage: null,
                 error: null,
                 systemMessage,
                 chatState: updatedChatState
-            };
+            } as any;
         } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
             console.error('Stage afterResponse error:', e);
             return {
                 stageDirections: null,
                 messageState: this.myInternalState,
+                state: this.myInternalState,
                 modifiedMessage: null,
                 systemMessage: null,
                 // Do not surface an error to avoid blocking chat; log only.
                 error: null,
                 chatState: (this as any)._chatState || null,
-            };
+            } as any;
         }
     }
 

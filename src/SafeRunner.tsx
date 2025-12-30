@@ -40,6 +40,7 @@ export const SafeRunner = ({factory, debug = false}: SafeRunnerProps) => {
                         const response = {
                             ...DEFAULT_LOAD_RESPONSE,
                             ...loadResult,
+                            state: (loadResult as any)?.state ?? (newStage as any)?.myInternalState ?? null,
                             messageState: loadResult?.messageState ?? newStage?.myInternalState ?? null,
                             chatState: loadResult?.chatState ?? (newStage as any)?._chatState ?? null,
                         };
@@ -68,6 +69,9 @@ export const SafeRunner = ({factory, debug = false}: SafeRunnerProps) => {
                         const response = {
                             ...DEFAULT_RESPONSE,
                             ...beforeResponse,
+                            state: beforeResponse && (beforeResponse as any).state != null
+                                ? (beforeResponse as any).state
+                                : stage?.myInternalState ?? null,
                             messageState: (beforeResponse && beforeResponse.messageState != null)
                                 ? beforeResponse.messageState
                                 : stage?.myInternalState ?? null,
@@ -83,6 +87,7 @@ export const SafeRunner = ({factory, debug = false}: SafeRunnerProps) => {
                             ...DEFAULT_RESPONSE,
                             error: `Stage error (before): ${msg}`,
                             // provide latest known state so host can continue
+                            state: stage?.myInternalState ?? null,
                             messageState: stage?.myInternalState ?? null,
                             chatState: stage?._chatState ?? null,
                         };
@@ -97,6 +102,9 @@ export const SafeRunner = ({factory, debug = false}: SafeRunnerProps) => {
                         const response = {
                             ...DEFAULT_RESPONSE,
                             ...afterResponse,
+                            state: afterResponse && (afterResponse as any).state != null
+                                ? (afterResponse as any).state
+                                : stage?.myInternalState ?? null,
                             messageState: (afterResponse && afterResponse.messageState != null)
                                 ? afterResponse.messageState
                                 : stage?.myInternalState ?? null,
@@ -111,6 +119,7 @@ export const SafeRunner = ({factory, debug = false}: SafeRunnerProps) => {
                         const response = {
                             ...DEFAULT_RESPONSE,
                             error: `Stage error (after): ${msg}`,
+                            state: stage?.myInternalState ?? null,
                             messageState: stage?.myInternalState ?? null,
                             chatState: stage?._chatState ?? null,
                         };
@@ -123,6 +132,7 @@ export const SafeRunner = ({factory, debug = false}: SafeRunnerProps) => {
                     try {
                         await stage.setState(data);
                         sendMessage(SET, {
+                            state: stage?.myInternalState ?? null,
                             messageState: stage?.myInternalState ?? null,
                             chatState: stage?._chatState ?? null,
                         }); // no caching — always acknowledge
@@ -131,6 +141,7 @@ export const SafeRunner = ({factory, debug = false}: SafeRunnerProps) => {
                         console.error('Stage SET error:', e);
                         sendMessage(SET, {
                             error: `Stage error (set): ${msg}`,
+                            state: stage?.myInternalState ?? null,
                             messageState: stage?.myInternalState ?? null,
                             chatState: stage?._chatState ?? null,
                         });
