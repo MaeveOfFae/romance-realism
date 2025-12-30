@@ -65,7 +65,13 @@ export const SafeRunner = ({factory, debug = false}: SafeRunnerProps) => {
                     } catch (e) {
                         const msg = e instanceof Error ? e.message : String(e);
                         console.error('Stage BEFORE error:', e);
-                        const response = {...DEFAULT_RESPONSE, error: `Stage error (before): ${msg}`};
+                        const response = {
+                            ...DEFAULT_RESPONSE,
+                            error: `Stage error (before): ${msg}`,
+                            // provide latest known state so host can continue
+                            messageState: stage?.myInternalState ?? null,
+                            chatState: stage?._chatState ?? null,
+                        };
                         sendMessage(BEFORE, response);
                     }
                     return;
@@ -79,7 +85,12 @@ export const SafeRunner = ({factory, debug = false}: SafeRunnerProps) => {
                     } catch (e) {
                         const msg = e instanceof Error ? e.message : String(e);
                         console.error('Stage AFTER error:', e);
-                        const response = {...DEFAULT_RESPONSE, error: `Stage error (after): ${msg}`};
+                        const response = {
+                            ...DEFAULT_RESPONSE,
+                            error: `Stage error (after): ${msg}`,
+                            messageState: stage?.myInternalState ?? null,
+                            chatState: stage?._chatState ?? null,
+                        };
                         sendMessage(AFTER, response);
                     }
                     return;
@@ -92,7 +103,11 @@ export const SafeRunner = ({factory, debug = false}: SafeRunnerProps) => {
                     } catch (e) {
                         const msg = e instanceof Error ? e.message : String(e);
                         console.error('Stage SET error:', e);
-                        sendMessage(SET, {error: `Stage error (set): ${msg}`});
+                        sendMessage(SET, {
+                            error: `Stage error (set): ${msg}`,
+                            messageState: stage?.myInternalState ?? null,
+                            chatState: stage?._chatState ?? null,
+                        });
                     }
                     return;
                 }
