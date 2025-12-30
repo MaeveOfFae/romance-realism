@@ -1,6 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {detectEscalationSignals, evaluateEmotionalDelta, extractEmotionSnapshot} from "../src/analysis_helpers";
+import {
+    detectConsentIssues,
+    detectEscalationSignals,
+    detectMemoryEvents,
+    evaluateEmotionalDelta,
+    evaluateProximityTransition,
+    extractEmotionSnapshot,
+    updateSceneFromMessage,
+} from "../src/analysis_helpers";
 
 test("extractEmotionSnapshot: empty -> neutral/low", () => {
     const snapshot = extractEmotionSnapshot("");
@@ -34,4 +42,32 @@ test("detectEscalationSignals: returns expected signal types", () => {
     assert.equal(types.has("emotional_disclosure"), true);
     assert.equal(types.has("dependency"), true);
     assert.equal(types.has("physical_closeness"), true);
+});
+
+test("extractEmotionSnapshot: detects high intensity cues", () => {
+    const snapshot = extractEmotionSnapshot("I love you!!! I'm shaking.");
+    assert.equal(snapshot.tone, "affection");
+    assert.equal(snapshot.intensity, "high");
+});
+
+test("evaluateProximityTransition: detects skipped steps", () => {
+    const res = evaluateProximityTransition("She takes your hand.", "Distant");
+    assert.deepEqual(res, {next: "Touching", skipped: true, changed: true});
+});
+
+test("detectConsentIssues: flags coercion patterns", () => {
+    const issues = detectConsentIssues("He pins you down and forces you to kiss him.");
+    assert.equal(issues.includes("coercive physical action"), true);
+    assert.equal(issues.includes("forces decisions/consent onto the user"), true);
+});
+
+test("detectMemoryEvents: can emit multiple unique events", () => {
+    const events = detectMemoryEvents("He comes clean. He lied to you.");
+    assert.equal(events.includes("confession"), true);
+    assert.equal(events.includes("betrayal"), true);
+});
+
+test("updateSceneFromMessage: detects time-of-day variants", () => {
+    const scene = updateSceneFromMessage(null, "It was late night when they arrived.", {tone: "neutral", intensity: "low"});
+    assert.equal(scene.timeOfDay, "late night");
 });
