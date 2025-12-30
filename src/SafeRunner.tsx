@@ -58,45 +58,64 @@ export const SafeRunner = ({factory, debug = false}: SafeRunnerProps) => {
                 }
 
                 if (messageType === BEFORE) {
-                    const beforeResponse = await stage.beforePrompt({...data});
-                    const response = {...DEFAULT_RESPONSE, ...beforeResponse};
-                    sendMessage(BEFORE, response); // no caching — avoid skipping auto-responses
+                    try {
+                        const beforeResponse = await stage.beforePrompt({...data});
+                        const response = {...DEFAULT_RESPONSE, ...beforeResponse};
+                        sendMessage(BEFORE, response); // no caching — avoid skipping auto-responses
+                    } catch (e) {
+                        const msg = e instanceof Error ? e.message : String(e);
+                        console.error('Stage BEFORE error:', e);
+                        const response = {...DEFAULT_RESPONSE, error: `Stage error (before): ${msg}`};
+                        sendMessage(BEFORE, response);
+                    }
                     return;
                 }
 
                 if (messageType === AFTER) {
-                    const afterResponse = await stage.afterResponse({...data});
-                    const response = {...DEFAULT_RESPONSE, ...afterResponse};
-                    sendMessage(AFTER, response); // no caching — avoid skipping auto-responses
+                    try {
+                        const afterResponse = await stage.afterResponse({...data});
+                        const response = {...DEFAULT_RESPONSE, ...afterResponse};
+                        sendMessage(AFTER, response); // no caching — avoid skipping auto-responses
+                    } catch (e) {
+                        const msg = e instanceof Error ? e.message : String(e);
+                        console.error('Stage AFTER error:', e);
+                        const response = {...DEFAULT_RESPONSE, error: `Stage error (after): ${msg}`};
+                        sendMessage(AFTER, response);
+                    }
                     return;
                 }
 
                 if (messageType === SET) {
-                    await stage.setState(data);
-                    sendMessage(SET, {}); // no caching — always acknowledge
+                    try {
+                        await stage.setState(data);
+                        sendMessage(SET, {}); // no caching — always acknowledge
+                    } catch (e) {
+                        const msg = e instanceof Error ? e.message : String(e);
+                        console.error('Stage SET error:', e);
+                        sendMessage(SET, {error: `Stage error (set): ${msg}`});
+                    }
                     return;
                 }
 
                 if (messageType === CALL) {
                     const {functionName, parameters} = data || {};
-                    if (stage != null && Object.prototype.hasOwnProperty.call(stage, functionName)) {
-                        const result = stage[functionName](parameters);
-                        sendMessage(CALL, {functionName, result});
-                    } else {
-                        sendMessage(CALL, {functionName, result: null});
+                    try {
+                        if (stage != null && Object.prototype.hasOwnProperty.call(stage, functionName)) {
+                            const result = stage[functionName](parameters);
+                            sendMessage(CALL, {functionName, result});
+                        } else {
+                            sendMessage(CALL, {functionName, result: null});
+                        }
+                    } catch (e) {
+                        const msg = e instanceof Error ? e.message : String(e);
+                        console.error('Stage CALL error:', e);
+                        sendMessage(CALL, {functionName, result: null, error: `Stage error (call): ${msg}`});
                     }
                 }
             } catch (e) {
                 const msg = e instanceof Error ? e.message : String(e);
                 console.error('Stage iFrame message handler error:', e);
-                try {
-                    window.parent.postMessage({
-                        messageType: 'ERROR',
-                        data: {name: e instanceof Error ? e.name : 'Error', message: msg},
-                    }, '*');
-                } catch {
-                    // ignore
-                }
+                // Never block the host; surface error as a log only.
             } finally {
                 setNode(new Date());
             }
