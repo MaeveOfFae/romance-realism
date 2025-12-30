@@ -165,7 +165,6 @@ export const SafeRunner = ({factory, debug = false}: SafeRunnerProps) => {
                     }
                 }
             } catch (e) {
-                const msg = e instanceof Error ? e.message : String(e);
                 console.error('Stage iFrame message handler error:', e);
                 // Never block the host; surface error as a log only.
             } finally {
@@ -176,7 +175,6 @@ export const SafeRunner = ({factory, debug = false}: SafeRunnerProps) => {
         window.removeEventListener('message', handleMessage as any);
         window.addEventListener('message', handleMessage as any);
         return () => window.removeEventListener('message', handleMessage as any);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [stage]);
 
     return (

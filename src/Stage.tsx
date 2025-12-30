@@ -102,8 +102,6 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
             users,
             config,
             messageState,
-            environment,
-            initState,
             chatState
         } = data;
         // Null-safe config handling
@@ -169,12 +167,11 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         }
     }
 
-    async beforePrompt(userMessage: Message): Promise<Partial<StageResponse<ChatStateType, MessageStateType>>> {
+    async beforePrompt(_userMessage: Message): Promise<Partial<StageResponse<ChatStateType, MessageStateType>>> {
         try {
             /***
              This is called after someone presses 'send', but before anything is sent to the LLM.
              ***/
-            const content = typeof (userMessage as any)?.content === 'string' ? (userMessage as any).content : '';
             const effectiveConfig = (this as any)._effectiveConfig || this.defaultConfig;
             const strictnessLevel = typeof effectiveConfig.strictness === 'number'
                 ? Math.floor(effectiveConfig.strictness)
@@ -210,7 +207,6 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
                 chatState: currentChatState || null,
             } as any;
         } catch (e) {
-            const msg = e instanceof Error ? e.message : String(e);
             console.error('Stage beforePrompt error:', e);
             return {
                 stageDirections: null,
@@ -418,7 +414,6 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
                 chatState: updatedChatState
             } as any;
         } catch (e) {
-            const msg = e instanceof Error ? e.message : String(e);
             console.error('Stage afterResponse error:', e);
             return {
                 stageDirections: null,

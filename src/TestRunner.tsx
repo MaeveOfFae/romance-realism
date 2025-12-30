@@ -1,4 +1,3 @@
-import {Stage} from "./Stage";
 import {useEffect, useState} from "react";
 import {DEFAULT_INITIAL, StageBase, InitialData} from "@chub-ai/stages-ts";
 import {DeveloperUI} from "./DeveloperUI";
@@ -17,10 +16,7 @@ export interface TestStageRunnerProps<StageType extends StageBase<InitStateType,
 export const TestStageRunner = <StageType extends StageBase<InitStateType, ChatStateType, MessageStateType, ConfigType>,
     InitStateType, ChatStateType, MessageStateType, ConfigType>({ factory }: TestStageRunnerProps<StageType, InitStateType, ChatStateType, MessageStateType, ConfigType>) => {
 
-    // You may need to add a @ts-ignore here,
-    //     as the linter doesn't always like the idea of reading types arbitrarily from files
-    // @ts-ignore
-    const [stage, _setStage] = useState(new Stage({...DEFAULT_INITIAL, ...InitData}));
+    const [stage] = useState(() => factory({...DEFAULT_INITIAL, ...(InitData as any)}));
 
     // This is what forces the stage node to re-render.
     const [node, setNode] = useState(new Date());
@@ -42,11 +38,11 @@ export const TestStageRunner = <StageType extends StageBase<InitStateType, ChatS
         }
     }, [showDeveloperUi]);
 
-    function refresh() {
+    function _refresh() {
         setNode(new Date());
     }
 
-    async function delayedTest(test: any, delaySeconds: number) {
+    async function _delayedTest(test: any, delaySeconds: number) {
         await new Promise(f => setTimeout(f, delaySeconds * 1000));
         return test();
     }

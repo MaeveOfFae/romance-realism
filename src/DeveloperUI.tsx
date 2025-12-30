@@ -12,7 +12,11 @@ function safeStringify(value: unknown, maxChars: number = 30_000): string {
             value,
             (_key, v: unknown) => {
                 if (typeof v === "bigint") return v.toString();
-                if (typeof v === "function") return `[Function ${(v as Function).name || "anonymous"}]`;
+                if (typeof v === "function") {
+                    const fn = v as (...args: unknown[]) => unknown;
+                    const name = (fn as {name?: string}).name || "anonymous";
+                    return `[Function ${name}]`;
+                }
                 if (typeof v === "object" && v !== null) {
                     if (seen.has(v as object)) return "[Circular]";
                     seen.add(v as object);
@@ -88,4 +92,3 @@ export function DeveloperUI({stage}: DeveloperUIProps) {
         </div>
     );
 }
-
