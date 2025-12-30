@@ -139,6 +139,8 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
             error: null,
             initState: null,
             chatState: null,
+            // Provide an initial state so hosts have a registry entry even before the first message.
+            messageState: {...this.myInternalState},
         };
     }
 
