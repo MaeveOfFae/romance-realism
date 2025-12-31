@@ -12,6 +12,8 @@ export type ConfigSchema = {
     ui_show_status?: boolean | number;
     ui_show_timestamps?: boolean | number;
     max_ui_notes_per_20?: number; // -1 disables override, otherwise 0..20
+    ui_debug_scoring?: boolean | number;
+    ui_debug_max_candidates?: number; // 1..50
 
     note_scene_summary?: boolean | number;
     note_emotion_delta?: boolean | number;
@@ -23,11 +25,16 @@ export type ConfigSchema = {
     note_drift?: boolean | number;
     note_scar_recall?: boolean | number;
 
+    tune_phase_weight_threshold?: number; // null/undefined -> strictness defaults, otherwise 1..20
+    tune_delta_score_threshold?: number; // null/undefined -> strictness defaults, otherwise 0..20
+    tune_ui_note_parts?: number; // null/undefined -> strictness defaults, otherwise 1..6
+
     [key: string]: unknown;
 };
 
 export type NormalizedConfig = Omit<ConfigSchema, 'enabled' | 'strictness' | 'memory_depth'
     | 'ui_enabled' | 'ui_max_notes' | 'ui_show_status' | 'ui_show_timestamps' | 'max_ui_notes_per_20'
+    | 'ui_debug_scoring' | 'ui_debug_max_candidates'
     | 'note_scene_summary' | 'note_emotion_delta' | 'note_phase' | 'note_proximity' | 'note_consent'
     | 'note_subtext' | 'note_silence' | 'note_drift' | 'note_scar_recall'> & {
     enabled: boolean;
@@ -39,6 +46,8 @@ export type NormalizedConfig = Omit<ConfigSchema, 'enabled' | 'strictness' | 'me
     ui_show_status: boolean;
     ui_show_timestamps: boolean;
     max_ui_notes_per_20: number | null;
+    ui_debug_scoring: boolean;
+    ui_debug_max_candidates: number;
 
     note_scene_summary: boolean;
     note_emotion_delta: boolean;
@@ -49,6 +58,10 @@ export type NormalizedConfig = Omit<ConfigSchema, 'enabled' | 'strictness' | 'me
     note_silence: boolean;
     note_drift: boolean;
     note_scar_recall: boolean;
+
+    tune_phase_weight_threshold: number | null;
+    tune_delta_score_threshold: number | null;
+    tune_ui_note_parts: number | null;
 };
 
 export const DEFAULT_CONFIG: NormalizedConfig = {
@@ -60,6 +73,8 @@ export const DEFAULT_CONFIG: NormalizedConfig = {
     ui_show_status: true,
     ui_show_timestamps: true,
     max_ui_notes_per_20: null,
+    ui_debug_scoring: false,
+    ui_debug_max_candidates: 12,
 
     note_scene_summary: true,
     note_emotion_delta: true,
@@ -70,6 +85,10 @@ export const DEFAULT_CONFIG: NormalizedConfig = {
     note_silence: true,
     note_drift: true,
     note_scar_recall: true,
+
+    tune_phase_weight_threshold: null,
+    tune_delta_score_threshold: null,
+    tune_ui_note_parts: null,
 } as const;
 
 function clamp(n: number, min: number, max: number): number {
@@ -110,6 +129,10 @@ export function normalizeConfig(cfg?: ConfigSchema | null): NormalizedConfig {
     const max_ui_notes_per_20 = maxOverrideRaw == null
         ? DEFAULT_CONFIG.max_ui_notes_per_20
         : (maxOverrideRaw < 0 ? null : clamp(maxOverrideRaw, 0, 20));
+    const ui_debug_scoring = asBool(src.ui_debug_scoring, DEFAULT_CONFIG.ui_debug_scoring);
+    const ui_debug_max_candidates = (typeof src.ui_debug_max_candidates === 'number')
+        ? clamp(Math.floor(src.ui_debug_max_candidates), 1, 50)
+        : DEFAULT_CONFIG.ui_debug_max_candidates;
 
     const note_scene_summary = asBool(src.note_scene_summary, DEFAULT_CONFIG.note_scene_summary);
     const note_emotion_delta = asBool(src.note_emotion_delta, DEFAULT_CONFIG.note_emotion_delta);
@@ -121,6 +144,16 @@ export function normalizeConfig(cfg?: ConfigSchema | null): NormalizedConfig {
     const note_drift = asBool(src.note_drift, DEFAULT_CONFIG.note_drift);
     const note_scar_recall = asBool(src.note_scar_recall, DEFAULT_CONFIG.note_scar_recall);
 
+    const tune_phase_weight_threshold = (typeof src.tune_phase_weight_threshold === 'number' && Number.isFinite(src.tune_phase_weight_threshold))
+        ? clamp(Math.floor(src.tune_phase_weight_threshold), 1, 20)
+        : DEFAULT_CONFIG.tune_phase_weight_threshold;
+    const tune_delta_score_threshold = (typeof src.tune_delta_score_threshold === 'number' && Number.isFinite(src.tune_delta_score_threshold))
+        ? clamp(Math.floor(src.tune_delta_score_threshold), 0, 20)
+        : DEFAULT_CONFIG.tune_delta_score_threshold;
+    const tune_ui_note_parts = (typeof src.tune_ui_note_parts === 'number' && Number.isFinite(src.tune_ui_note_parts))
+        ? clamp(Math.floor(src.tune_ui_note_parts), 1, 6)
+        : DEFAULT_CONFIG.tune_ui_note_parts;
+
     return {
         enabled,
         strictness,
@@ -130,6 +163,8 @@ export function normalizeConfig(cfg?: ConfigSchema | null): NormalizedConfig {
         ui_show_status,
         ui_show_timestamps,
         max_ui_notes_per_20,
+        ui_debug_scoring,
+        ui_debug_max_candidates,
 
         note_scene_summary,
         note_emotion_delta,
@@ -140,13 +175,19 @@ export function normalizeConfig(cfg?: ConfigSchema | null): NormalizedConfig {
         note_silence,
         note_drift,
         note_scar_recall,
+
+        tune_phase_weight_threshold,
+        tune_delta_score_threshold,
+        tune_ui_note_parts,
         // preserve unknown keys but do not trust their types
         ...Object.keys(src).reduce((acc: Record<string, unknown>, k) => {
             if (![
                 'enabled', 'strictness', 'memory_depth',
                 'ui_enabled', 'ui_max_notes', 'ui_show_status', 'ui_show_timestamps', 'max_ui_notes_per_20',
+                'ui_debug_scoring', 'ui_debug_max_candidates',
                 'note_scene_summary', 'note_emotion_delta', 'note_phase', 'note_proximity', 'note_consent',
                 'note_subtext', 'note_silence', 'note_drift', 'note_scar_recall',
+                'tune_phase_weight_threshold', 'tune_delta_score_threshold', 'tune_ui_note_parts',
             ].includes(k)) {
                 acc[k] = (src as any)[k];
             }
@@ -169,6 +210,11 @@ export function validateConfig(cfg?: ConfigSchema | null): string[] {
     if (cfg.ui_show_status != null && !(typeof cfg.ui_show_status === 'boolean' || typeof cfg.ui_show_status === 'number')) errors.push('`ui_show_status` must be a boolean (or 0/1).');
     if (cfg.ui_show_timestamps != null && !(typeof cfg.ui_show_timestamps === 'boolean' || typeof cfg.ui_show_timestamps === 'number')) errors.push('`ui_show_timestamps` must be a boolean (or 0/1).');
     if (cfg.max_ui_notes_per_20 != null && (typeof cfg.max_ui_notes_per_20 !== 'number' || !Number.isFinite(cfg.max_ui_notes_per_20))) errors.push('`max_ui_notes_per_20` must be a number.');
+    if (cfg.ui_debug_scoring != null && !(typeof cfg.ui_debug_scoring === 'boolean' || typeof cfg.ui_debug_scoring === 'number')) errors.push('`ui_debug_scoring` must be a boolean (or 0/1).');
+    if (cfg.ui_debug_max_candidates != null && (typeof cfg.ui_debug_max_candidates !== 'number' || !Number.isFinite(cfg.ui_debug_max_candidates))) errors.push('`ui_debug_max_candidates` must be a number.');
+    if (cfg.tune_phase_weight_threshold != null && (typeof cfg.tune_phase_weight_threshold !== 'number' || !Number.isFinite(cfg.tune_phase_weight_threshold))) errors.push('`tune_phase_weight_threshold` must be a number.');
+    if (cfg.tune_delta_score_threshold != null && (typeof cfg.tune_delta_score_threshold !== 'number' || !Number.isFinite(cfg.tune_delta_score_threshold))) errors.push('`tune_delta_score_threshold` must be a number.');
+    if (cfg.tune_ui_note_parts != null && (typeof cfg.tune_ui_note_parts !== 'number' || !Number.isFinite(cfg.tune_ui_note_parts))) errors.push('`tune_ui_note_parts` must be a number.');
 
     for (const k of [
         'note_scene_summary', 'note_emotion_delta', 'note_phase', 'note_proximity', 'note_consent',

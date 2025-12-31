@@ -28,3 +28,18 @@ test("normalizeConfig: accepts 0/1 for boolean-like toggles", () => {
     assert.equal(normalized.ui_show_status, false);
     assert.equal(normalized.note_emotion_delta, false);
 });
+
+test("normalizeConfig: clamps tuning + debug fields", () => {
+    const normalized = normalizeConfig({
+        ui_debug_scoring: 1,
+        ui_debug_max_candidates: 999,
+        tune_phase_weight_threshold: 999,
+        tune_delta_score_threshold: -999,
+        tune_ui_note_parts: 999,
+    });
+    assert.equal(normalized.ui_debug_scoring, true);
+    assert.equal(normalized.ui_debug_max_candidates, 50);
+    assert.equal(normalized.tune_phase_weight_threshold, 20);
+    assert.equal(normalized.tune_delta_score_threshold, 0);
+    assert.equal(normalized.tune_ui_note_parts, 6);
+});

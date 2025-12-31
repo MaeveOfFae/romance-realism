@@ -42,6 +42,11 @@ type MessageStateType = {
     silenceHistory?: number[];
     driftNotes?: number[];
     overlayNotes?: Array<{text: string; at: number}>;
+    lastUiDebug?: {
+        turnIndex: number;
+        candidates: Array<{id: string; score: number; critical?: boolean; text: string; debug?: unknown}>;
+        selectedIds: string[];
+    } | null;
     [key: string]: any;
 };
 
@@ -289,11 +294,22 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
             : (({1: 0, 2: 2, 3: 6} as Record<number, number>)[strictnessLevel] ?? 0);
         const canEmitUiNote = Boolean(effectiveConfig.ui_enabled) && recentSystemNotes.length < allowedUiNotesPer20;
 
-        type NoteCandidate = {id: string; text: string; score: number; critical?: boolean};
-        const candidates: NoteCandidate[] = [];
+        type NoteCandidate = {id: string; text: string; score: number; critical?: boolean; debug?: unknown};
+        const candidatesById = new Map<string, NoteCandidate>();
         const addCandidate = (c: NoteCandidate) => {
             if (!c || !c.text) return;
-            candidates.push(c);
+            const prior = candidatesById.get(c.id);
+            if (!prior) {
+                candidatesById.set(c.id, c);
+                return;
+            }
+
+            const mergedCritical = Boolean(prior.critical) || Boolean(c.critical);
+            if (c.score > prior.score) {
+                candidatesById.set(c.id, {...c, critical: mergedCritical});
+            } else {
+                candidatesById.set(c.id, {...prior, critical: mergedCritical});
+            }
         };
 
         // Run lightweight analysis hooks (placeholders) that will be expanded later.
@@ -349,7 +365,10 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         }
 
         // Find the highest suggested phase that has enough weight. Strictness 3 is more permissive.
-        const phaseThresholdByStrictness = ({1: 6, 2: 4, 3: 3} as Record<number, number>)[strictnessLevel] ?? 4;
+        const phaseThresholdByStrictnessDefault = ({1: 6, 2: 4, 3: 3} as Record<number, number>)[strictnessLevel] ?? 4;
+        const phaseThresholdByStrictness = typeof effectiveConfig.tune_phase_weight_threshold === 'number'
+            ? effectiveConfig.tune_phase_weight_threshold
+            : phaseThresholdByStrictnessDefault;
         let targetPhase: typeof phaseOrder[number] | null = null;
         for (let i = phaseOrder.length - 1; i >= 0; i--) {
             const p = phaseOrder[i];
@@ -380,7 +399,10 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         let uiNote: string | null = null;
         const delta = evaluateEmotionalDelta(snapshot, priorEmotions, content);
         const deltaScore = typeof (delta as any).score === 'number' ? (delta as any).score : 0;
-        const deltaThresholdByStrictness = ({1: 5, 2: 3, 3: 2} as Record<number, number>)[strictnessLevel] ?? 3;
+        const deltaThresholdByStrictnessDefault = ({1: 5, 2: 3, 3: 2} as Record<number, number>)[strictnessLevel] ?? 3;
+        const deltaThresholdByStrictness = typeof effectiveConfig.tune_delta_score_threshold === 'number'
+            ? effectiveConfig.tune_delta_score_threshold
+            : deltaThresholdByStrictnessDefault;
         if (effectiveConfig.note_emotion_delta && effectiveConfig.enabled && strictnessLevel >= 2 && canEmitUiNote && delta.detected && deltaScore >= deltaThresholdByStrictness) {
             // annotation frequency control: strictness 1..3 -> allowed annotations per window
             const allowedByStrictness = ({1: 1, 2: 2, 3: 3} as Record<number, number>)[strictnessLevel] || 2;
@@ -392,6 +414,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
                     id: 'emotion_delta',
                     text: `abrupt emotional shift detected (${delta.summary}). Consider adding a transitional cue.`,
                     score: deltaScore,
+                    debug: (delta as any).reasons ?? null,
                 });
                 this.myInternalState.lastAnnotations.push(turnIndex);
                 // cap size of annotations history
@@ -436,7 +459,12 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
             const subtext = scoreSubtext(content);
             const subtextThresholdByStrictness = ({1: 99, 2: 2, 3: 1} as Record<number, number>)[strictnessLevel] ?? 2;
             if (subtext.notes.length > 0 && subtext.score >= subtextThresholdByStrictness) {
-                addCandidate({id: 'subtext', text: `Subtext: ${subtext.notes.join('; ')}`, score: subtext.score});
+                addCandidate({
+                    id: 'subtext',
+                    text: `Subtext: ${subtext.notes.join('; ')}`,
+                    score: subtext.score,
+                    debug: subtext.reasons,
+                });
             }
         }
 
@@ -445,7 +473,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
             const silence = scoreSilenceOrPause(content);
             if (silence.note) {
                 this.myInternalState.silenceHistory = (this.myInternalState.silenceHistory || []).concat([Date.now()]).slice(-50);
-                addCandidate({id: 'silence', text: silence.note, score: silence.score});
+                addCandidate({id: 'silence', text: silence.note, score: silence.score, debug: silence.reasons});
             }
         }
 
@@ -475,7 +503,11 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
 
         let selectedForUi: NoteCandidate[] = [];
         if (effectiveConfig.ui_enabled) {
-            const maxParts = strictnessLevel >= 3 ? 4 : 2;
+            const maxPartsDefault = strictnessLevel >= 3 ? 4 : 2;
+            const maxParts = typeof effectiveConfig.tune_ui_note_parts === 'number'
+                ? effectiveConfig.tune_ui_note_parts
+                : maxPartsDefault;
+            const candidates = Array.from(candidatesById.values());
             const selected = candidates
                 // Critical notes can bypass the UI throttle; others respect it.
                 .filter((c) => c.critical || canEmitUiNote)
@@ -498,6 +530,27 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
             if (quotaConsumed) {
                 (this.myInternalState as any).systemNoteHistory = recentSystemNotes.concat([turnIndex]).slice(-100);
             }
+        }
+
+        if (effectiveConfig.ui_debug_scoring) {
+            const candidates = Array.from(candidatesById.values())
+                .sort((a, b) => (Number(Boolean(b.critical)) * 100 + b.score) - (Number(Boolean(a.critical)) * 100 + a.score));
+            const maxCandidates = typeof effectiveConfig.ui_debug_max_candidates === 'number'
+                ? effectiveConfig.ui_debug_max_candidates
+                : 12;
+            this.myInternalState.lastUiDebug = {
+                turnIndex,
+                candidates: candidates.slice(0, maxCandidates).map((c) => ({
+                    id: c.id,
+                    score: c.score,
+                    critical: c.critical,
+                    text: c.text,
+                    debug: c.debug,
+                })),
+                selectedIds: selectedForUi.map((c) => c.id),
+            };
+        } else {
+            this.myInternalState.lastUiDebug = null;
         }
 
             return {
@@ -549,6 +602,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
 // Polls the stage instance for recent overlay notes and renders a toggleable list.
 function NoticeOverlay({stageRef}: {stageRef: any}) {
     const [open, setOpen] = useState(false);
+    const [explain, setExplain] = useState(false);
     const [tick, setTick] = useState(0);
     const feedRef = useRef<HTMLDivElement | null>(null);
 
@@ -559,8 +613,10 @@ function NoticeOverlay({stageRef}: {stageRef: any}) {
 
     const cfg = (stageRef as any)?._effectiveConfig || (stageRef as any)?.defaultConfig || {};
     const uiEnabled = !(cfg && cfg.ui_enabled === false);
+    const debugEnabled = Boolean(cfg && cfg.ui_debug_scoring);
 
     const notes = (stageRef?.myInternalState?.overlayNotes as Array<{text: string; at: number}> | undefined) || [];
+    const lastUiDebug = (stageRef?.myInternalState?.lastUiDebug as any) || null;
     const turnIndex = stageRef?.myInternalState?.turnIndex as number | undefined;
     const lastAfterResponseAt = stageRef?.myInternalState?.lastAfterResponseAt as number | undefined;
     const maxNotes = typeof cfg.ui_max_notes === 'number' ? Math.max(1, Math.min(50, Math.floor(cfg.ui_max_notes))) : 10;
@@ -629,9 +685,50 @@ function NoticeOverlay({stageRef}: {stageRef: any}) {
                             {`Status • ${typeof turnIndex === 'number' ? `turn ${turnIndex}` : 'no turns yet'}${typeof lastAfterResponseAt === 'number' ? ` • last response ${new Date(lastAfterResponseAt).toLocaleTimeString()}` : ''}`}
                         </div>
                     )}
+                    {debugEnabled && (
+                        <label style={{display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', fontSize: '12px', color: '#444'}}>
+                            <input
+                                type="checkbox"
+                                checked={explain}
+                                onChange={(e) => setExplain(e.target.checked)}
+                            />
+                            <span>Explain scoring</span>
+                        </label>
+                    )}
                     {!hasNotes && (
                         <div style={{fontSize: '12px', color: '#666'}}>
                             No notes yet. Notes will appear when the stage emits guidance.
+                        </div>
+                    )}
+                    {debugEnabled && explain && lastUiDebug && Array.isArray(lastUiDebug.candidates) && (
+                        <div style={{marginBottom: '12px', padding: '8px', border: '1px solid #e2e2e2', borderRadius: '10px', background: '#fafafa'}}>
+                            <div style={{fontSize: '11px', fontWeight: 700, color: '#444', marginBottom: '6px'}}>
+                                {`Scoring (t${lastUiDebug.turnIndex ?? '?'})`}
+                            </div>
+                            {lastUiDebug.candidates.map((c: any) => {
+                                const isSelected = Array.isArray(lastUiDebug.selectedIds) && lastUiDebug.selectedIds.includes(c.id);
+                                const reasons = Array.isArray(c.debug) ? c.debug : null;
+                                return (
+                                    <div key={`${c.id}-${c.score}`} style={{marginBottom: '8px'}}>
+                                        <div style={{fontSize: '12px', color: '#222'}}>
+                                            <span style={{fontWeight: 700}}>{`[${c.score}]`}</span>{" "}
+                                            <span style={{fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace'}}>{c.id}</span>
+                                            {c.critical ? <span style={{marginLeft: '6px', fontWeight: 700, color: '#b00020'}}>CRIT</span> : null}
+                                            {isSelected ? <span style={{marginLeft: '6px', fontWeight: 700, color: '#0b6bcb'}}>USED</span> : null}
+                                        </div>
+                                        <div style={{fontSize: '12px', color: '#444', whiteSpace: 'pre-wrap'}}>{c.text}</div>
+                                        {reasons && (
+                                            <div style={{marginTop: '4px', fontSize: '11px', color: '#666'}}>
+                                                {reasons.map((r: any, idx: number) => (
+                                                    <div key={`${c.id}-r-${idx}`} style={{fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace'}}>
+                                                        {`${r.label}: ${r.weight}`}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
                         </div>
                     )}
                     {latest.map((n, idx) => (

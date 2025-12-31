@@ -39,6 +39,11 @@ Always run configs through `normalizeConfig`:
 - `enabled` — boolean (default `true`).
 - `strictness` — 1–3 (default `2`); throttles how chatty notes are (`3` is most visible).
 - `memory_depth` — 5–30 (default `15`); cap for the memory-scar log.
+- `ui_debug_scoring` — boolean (default `false`); enables an “Explain scoring” debug view in the in-iframe notes UI.
+- `ui_debug_max_candidates` — 1–50 (default `12`); max candidates shown in the debug view.
+- `tune_phase_weight_threshold` — 1–20; override weighted phase threshold (otherwise strictness defaults apply).
+- `tune_delta_score_threshold` — 0–20; override whiplash score threshold (otherwise strictness defaults apply).
+- `tune_ui_note_parts` — 1–6; override how many note parts can be merged into one UI note.
 
 ## Requirements
 
