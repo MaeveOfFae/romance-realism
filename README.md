@@ -14,23 +14,68 @@ Key goals:
 
 ## Romance Realism Pack
 
-Background-only realism guardrails for slow-burn romance roleplay. This Stage runs quietly alongside a chat and shows concise notes in the stage UI to help keep long-form roleplay emotionally coherent and slow-burning without rewriting or blocking user content.
+Background-only guardrails for slow-burn romance roleplay. The Stage runs beside a chat, surfaces concise system notes in its own UI, and never rewrites or blocks user text. It keeps tone, pacing, proximity, and continuity coherent so long-form scenes stay consistent.
 
-Current status (2025-12-29):
+## Highlights
 
-- Core heuristics and features implemented (emotion snapshots, delta detection, scene carryover, phase & proximity gates, consent checks, memory scars, subtext, silence interpreter, drift detector).
-- Type-check and production build succeed locally (`yarn tsc --noEmit` and `yarn build`).
-- Unit tests added (dependency-free, Node `node:test`) — run with `yarn test`.
-- Read-only developer overlay added for local dev (toggle in the dev runner settings menu).
-
-**Summary of implemented features (status):**
-
-- Stage skeleton & lifecycle wiring — completed
-- Config schema & null-safety (`enabled`, `strictness`, `memory_depth`) — completed
-- Emotion snapshot (tone + intensity) and delta / whiplash detection — completed
-- System annotations for whiplash — completed
 - Scene carryover capture and prompt summary — completed
-- Relationship phase tracking (Neutral → Familiar → Charged → Intimate) with multi-signal advancement and skip warnings — completed
+Notes stay in the stage UI; nothing is injected into the chat transcript or used to block messages.
+
+## Project layout
+
+- `src/Stage.tsx` — lifecycle (`load`, `beforePrompt`, `afterResponse`, `setState`) and orchestration.
+- `src/analysis_helpers.ts` — unit-testable heuristics (emotion snapshot, delta eval, escalation signals, realism detectors).
+- `src/config_schema.ts` — null-safe config and `normalizeConfig` helper.
+- `src/TestRunner.tsx` — local dev runner.
+- `src/DeveloperUI.tsx` — read-only overlay (dev only).
+- `src/Playground.tsx` — interactive showcase for the heuristics.
+- `public/chub_meta.yaml` — stage metadata.
+- `tests/*.test.ts` — unit tests compiled to `.test-dist/` by `yarn test`.
+
+## Configuration
+
+Always run configs through `normalizeConfig`:
+
+- `enabled` — boolean (default `true`).
+- `strictness` — 1–3 (default `2`); throttles how chatty notes are (`3` is most visible).
+- `memory_depth` — 5–30 (default `15`); cap for the memory-scar log.
+
+## Requirements
+
+- Node `21.7.1` (per `package.json` engines)
+- Yarn (recommended)
+
+## Install & run
+
+```bash
+yarn install
+
+# Dev mode (TestRunner + Playground)
+yarn dev
+
+# Type-check
+yarn tsc --noEmit
+
+# Run tests (compile to .test-dist then run node:test)
+yarn test
+
+# Production build
+yarn build
+```
+
+## Testing
+
+- `tests/config_schema.test.ts` — config normalization/clamping.
+- `tests/stage-helpers.test.ts` — emotion snapshot, delta, escalation signals.
+
+Manual sanity checks: whiplash spikes, scene persistence across `setState`/swipe, phase/proximity skips, memory-scar logging/recall, silence vs. disengagement classification.
+
+## Roadmap
+
+- Add CI (type-check, build, tests).
+- Add functional tests around lifecycle and state persistence.
+- Tune heuristics/thresholds; consider exposing more config.
+- Document how to add new detectors and tests.
 - Proximity realism gate (Distant, Nearby, Touching, Intimate) with skipped-step warnings — completed
 - Consent & agency checks (assigned emotions to user, forced consent, internal monologue detection) — completed
 - Memory scar system (confession, betrayal, rejection, conflict logging; append-only; recall) — completed
