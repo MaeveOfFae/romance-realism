@@ -32,6 +32,23 @@ test("evaluateEmotionalDelta: detects tone + intensity change after steady windo
     assert.equal(delta.detected, true);
 });
 
+test("evaluateEmotionalDelta: detects abrupt intensity drop after steady high window", () => {
+    const current = {tone: "neutral", intensity: "low"} as const;
+    const recent = Array.from({length: 5}, () => ({tone: "angry", intensity: "high"} as const));
+    const delta = evaluateEmotionalDelta(current, recent);
+    assert.equal(delta.detected, true);
+});
+
+test("evaluateEmotionalDelta: transition cue can suppress borderline delta", () => {
+    const current = {tone: "sad", intensity: "medium"} as const;
+    const recent = Array.from({length: 5}, () => ({tone: "neutral", intensity: "low"} as const));
+    const withoutCue = evaluateEmotionalDelta(current, recent, "I regret this.");
+    assert.equal(withoutCue.detected, true);
+
+    const withCue = evaluateEmotionalDelta(current, recent, "After a long pause, I regret this.");
+    assert.equal(withCue.detected, false);
+});
+
 test("detectEscalationSignals: returns expected signal types", () => {
     const signals = detectEscalationSignals(
         "I confess I need you. She hugs him close.",

@@ -148,6 +148,7 @@ export function evaluateEmotionalDelta(current: EmotionSnapshot, recent: Emotion
     const toneChanged = lastTone.length === 0 ? false : (lastTone !== current.tone);
 
     const intensityJump = curIntensity - avgPrevIntensity;
+    const absIntensityJump = Math.abs(intensityJump);
     const steadyPrev = recentTones.length >= 3 && recentTones.every(t => t === lastTone);
 
     const polarity = (tone: string): "pos" | "neg" | "neutral" => {
@@ -163,7 +164,10 @@ export function evaluateEmotionalDelta(current: EmotionSnapshot, recent: Emotion
     if (steadyPrev) pushWeighted(reasons, "steady_previous_window", 1);
     if (toneChanged) pushWeighted(reasons, "tone_changed", 1);
     if (polarityFlip) pushWeighted(reasons, "polarity_flip", 2);
-    if (intensityJump >= 1) pushWeighted(reasons, "intensity_jump", Math.min(3, Math.max(1, intensityJump)) * 2);
+    if (absIntensityJump >= 1) {
+        const label = intensityJump >= 0 ? "intensity_spike" : "intensity_drop";
+        pushWeighted(reasons, label, Math.min(3, absIntensityJump) * 2);
+    }
 
     // Suppress whiplash when explicit transition cues are present.
     const transitionCues =
@@ -174,9 +178,9 @@ export function evaluateEmotionalDelta(current: EmotionSnapshot, recent: Emotion
     const score = sumWeights(reasons);
     // Default detection threshold; callers can also use `score` to tune by strictness.
     const detected = score >= 3 && (
-        (intensityJump >= 2) ||
+        (absIntensityJump >= 2) ||
         (polarityFlip && steadyPrev && curIntensity >= 1) ||
-        (toneChanged && steadyPrev && Math.abs(intensityJump) >= 1)
+        (toneChanged && steadyPrev && absIntensityJump >= 1)
     );
     const summary = `from [${prevTones.join(', ')}] (${avgPrevIntensity}) to ${current.tone} (${curIntensity})`;
     return {detected, summary, score, reasons};

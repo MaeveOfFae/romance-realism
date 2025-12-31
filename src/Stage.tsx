@@ -279,6 +279,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
             this.myInternalState.lastAfterResponseAt = Date.now();
 
         // Global system note throttle to prevent "catching" every bot message with annotations.
+        // This quota is intended for non-critical guidance; critical notes may bypass it.
         const systemNoteHistory: number[] = Array.isArray((this.myInternalState as any).systemNoteHistory)
             ? (this.myInternalState as any).systemNoteHistory
             : [];
@@ -472,6 +473,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
             }
         }
 
+        let selectedForUi: NoteCandidate[] = [];
         if (effectiveConfig.ui_enabled) {
             const maxParts = strictnessLevel >= 3 ? 4 : 2;
             const selected = candidates
@@ -479,6 +481,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
                 .filter((c) => c.critical || canEmitUiNote)
                 .sort((a, b) => (Number(Boolean(b.critical)) * 100 + b.score) - (Number(Boolean(a.critical)) * 100 + a.score))
                 .slice(0, maxParts);
+            selectedForUi = selected;
             if (selected.length > 0) {
                 const parts = selected.map((c) => c.text.replace(/^System note:\s*/i, ''));
                 uiNote = `System note: ${parts.join(' — ')}`;
@@ -491,7 +494,10 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
             this.myInternalState.overlayNotes = (this.myInternalState.overlayNotes || [])
                 .concat([{text: uiNote, at: Date.now()}])
                 .slice(-maxNotes);
-            (this.myInternalState as any).systemNoteHistory = recentSystemNotes.concat([turnIndex]).slice(-100);
+            const quotaConsumed = selectedForUi.some((c) => !c.critical);
+            if (quotaConsumed) {
+                (this.myInternalState as any).systemNoteHistory = recentSystemNotes.concat([turnIndex]).slice(-100);
+            }
         }
 
             return {
