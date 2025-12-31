@@ -2,7 +2,7 @@
 
 TL;DR - Keeps track of mundane shit hopefully so that the characters can say... remember where they are standing.
 
-Background-only realism guardrails for slow-burn romance roleplay. This Stage runs silently alongside a chat to provide non-intrusive, user-visible system notes that help keep long-form roleplay emotionally consistent and slow-burning without rewriting or blocking user content.
+Background-only realism guardrails for slow-burn romance roleplay. This Stage runs silently alongside a chat and shows non-intrusive notes inside the stage UI (never injected into the chat log) to help keep long-form roleplay emotionally consistent and slow-burning without rewriting or blocking user content.
 
 Key goals:
 
@@ -10,11 +10,11 @@ Key goals:
 - Track scene carryover (location, time-of-day, lingering mood, unresolved beats).
 - Monitor slow-burn relationship phases and flag skipped escalation steps.
 - Log emotional "scars" (conflicts, confessions, rejections) in an append-only memory.
-- Surface subtext and pause/hesitation signals as concise system notes for authorship visibility.
+- Surface subtext and pause/hesitation signals as concise notes for authorship visibility.
 
 ## Romance Realism Pack
 
-Background-only realism guardrails for slow-burn romance roleplay. This Stage runs quietly alongside a chat and emits concise, user-visible system notes to help keep long-form roleplay emotionally coherent and slow-burning without rewriting or blocking user content.
+Background-only realism guardrails for slow-burn romance roleplay. This Stage runs quietly alongside a chat and shows concise notes in the stage UI to help keep long-form roleplay emotionally coherent and slow-burning without rewriting or blocking user content.
 
 Current status (2025-12-29):
 
@@ -42,8 +42,8 @@ Estimated completeness: core feature set implemented ~95% — remaining work is 
 
 ## Files of interest
 
-- `src/Stage.tsx` — stage implementation and lifecycle hooks (`load`, `beforePrompt`, `afterResponse`, `setState`). All heuristics and state models live here.
-- `src/analysis_helpers.ts` — extracted, unit-testable heuristic helpers (emotion snapshot, delta evaluation, escalation signals).
+- `src/Stage.tsx` — stage implementation and lifecycle hooks (`load`, `beforePrompt`, `afterResponse`, `setState`). Orchestration and state wiring live here.
+- `src/analysis_helpers.ts` — extracted, unit-testable heuristic helpers (emotion snapshot, delta evaluation, escalation signals, realism detectors).
 - `src/config_schema.ts` — null-safe config schema and `normalizeConfig` helper.
 - `public/chub_meta.yaml` — stage metadata (name, tagline, tags, visibility, position).
 - `src/TestRunner.tsx` — local development runner used in dev mode.
@@ -56,20 +56,20 @@ Estimated completeness: core feature set implemented ~95% — remaining work is 
 The stage accepts a small, null-safe config object. Missing values fall back to defaults.
 
 - `enabled` (boolean) — default `true`. Toggle the pack on/off.
-- `strictness` (integer, 1–3) — default `2`. Controls annotation frequency/throttling and some detector windows (use `3` for user-visible system notes; `1–2` are intentionally quiet).
+- `strictness` (integer, 1–3) — default `2`. Controls note frequency/throttling and some detector windows (use `3` to show more UI notes; `1–2` are intentionally quiet).
 - `memory_depth` (integer, 5–30) — default `15`. Caps the size of the memory scars log.
 
 Use `normalizeConfig` from `src/config_schema.ts` when reading config to ensure values are clamped and safe.
 
 ## Developer notes & change summary
 
-The Stage is background-only and must not render visible UI — `render()` returns an empty fragment. Any UI in this repo is for local development only (via `src/TestRunner.tsx`).
+The Stage does not inject system messages into the chat log. Any guidance is shown only inside the stage UI.
 
 Key lifecycle wiring:
 
 - `load()` initializes the stage and returns `success: true`.
-- `beforePrompt()` attaches a concise scene summary as a system message when scene context exists.
-- `afterResponse()` performs all analyses and augments message-level state (`messageState`) and may add a `systemMessage` shown to authors.
+- `beforePrompt()` may record a concise scene summary as a stage UI note when scene context exists.
+- `afterResponse()` performs all analyses and augments message-level state (`messageState`) and may add a stage UI note.
 - `setState()` restores persisted message-level state on branch navigation.
 
 Recent changes (high level):

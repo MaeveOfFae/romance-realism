@@ -28,3 +28,4 @@ creation.json
 *.trash
 *.tgz
 .test-dist/
+temp.html
