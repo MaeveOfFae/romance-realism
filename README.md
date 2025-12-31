@@ -2,7 +2,7 @@
 
 TL;DR - Keeps track of mundane shit hopefully so that the characters can say... remember where they are standing.
 
-Background-only realism guardrails for slow-burn romance roleplay. This Stage runs silently alongside a chat and shows non-intrusive notes inside the stage UI (never injected into the chat log) to help keep long-form roleplay emotionally consistent and slow-burning without rewriting or blocking user content.
+Background-only realism guardrails for slow-burn romance roleplay. This Stage runs silently alongside a chat and shows non-intrusive notes inside the stage UI (never injected into the chat log) and can optionally inject one-shot guidance into the *next* LLM system prompt (still not written into the chat transcript) to keep long-form roleplay emotionally consistent and slow-burning without rewriting or blocking user content.
 
 Key goals:
 
@@ -19,7 +19,7 @@ Background-only guardrails for slow-burn romance roleplay. The Stage runs beside
 ## Highlights
 
 - Scene carryover capture and prompt summary — completed
-Notes stay in the stage UI; nothing is injected into the chat transcript or used to block messages.
+Notes stay in the stage UI; nothing is injected into the chat transcript, and prompt injection (when enabled) is system-prompt-only and one-shot.
 
 ## Project layout
 
@@ -50,8 +50,14 @@ UI:
 - `ui_max_notes` — 1–50 (default `10`); max notes kept in the feed.
 - `ui_show_status` — boolean (default `true`); show turn/time status header.
 - `ui_show_timestamps` — boolean (default `true`); show timestamps per note.
-- `max_ui_notes_per_20` — `-1` (auto) or 0–20; override strictness UI quota per ~20 turns.
+- `max_notes_per_20` — `-1` (auto) or 0–20; override strictness note quota per ~20 turns (applies to UI notes + prompt injection). Legacy alias: `max_ui_notes_per_20`.
 - `tune_ui_note_parts` — `null` (strictness default) or 1–6; max merged note parts per emitted note.
+Prompt injection:
+
+- `prompt_injection_enabled` — boolean (default `true`); injects selected guidance into the next message's system prompt (never into chat transcript).
+- `prompt_injection_include_scene` — boolean (default `true`); include a compact scene summary when available.
+- `prompt_injection_max_parts` — 1–6 (default `3`); max guidance bullets injected per turn.
+- `prompt_injection_max_chars` — 100–4000 (default `900`); cap for the injected system message.
 
 Notes (per-detector toggles):
 
@@ -143,7 +149,7 @@ Use `normalizeConfig` from `src/config_schema.ts` when reading config to ensure 
 
 ## Developer notes & change summary
 
-The Stage does not inject system messages into the chat log. Any guidance is shown only inside the stage UI.
+The Stage does not inject system messages into the chat log. Guidance is shown inside the stage UI, and (when enabled) injected one-shot into the next system prompt only.
 
 Key lifecycle wiring:
 
@@ -209,7 +215,7 @@ Note: `package.json` currently specifies Node `21.7.1` in `engines`. Use an appr
 
 ## Packaging & release
 
-- `public/chub_meta.yaml` has been updated with metadata: `project_name: "Romance Realism Pack"`, `tagline`, `visibility: PUBLIC`, `position: NONE`, and tags (`romance`, `realism`, `slow-burn`, `roleplay`).
+- `public/chub_meta.yaml` has been updated with metadata: `project_name: "Romance Realism Pack"`, `tagline`, `visibility: PUBLIC`, `position: ADJACENT`, and tags (`romance`, `realism`, `slow-burn`, `roleplay`).
 - Before publishing: add unit tests, confirm `yarn build`, update version and changelog, and add release notes.
 
 ## Next recommended tasks

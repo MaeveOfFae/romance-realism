@@ -7,6 +7,7 @@ import {
     evaluateEmotionalDelta,
     evaluateProximityTransition,
     extractEmotionSnapshot,
+    scoreSilenceOrPause,
     updateSceneFromMessage,
 } from "../src/analysis_helpers";
 
@@ -82,10 +83,12 @@ test("extractEmotionSnapshot: detects high intensity cues", () => {
 
 test("evaluateProximityTransition: detects skipped steps", () => {
     const res = evaluateProximityTransition("She takes your hand.", "Distant");
+    assert.equal(res.from, "Distant");
     assert.equal(res.next, "Touching");
     assert.equal(res.skipped, true);
     assert.equal(res.changed, true);
     assert.equal(res.score >= 1, true);
+    assert.equal(res.missing.includes("Nearby"), true);
 });
 
 test("detectConsentIssues: flags coercion patterns", () => {
@@ -106,6 +109,7 @@ test("detectConsentIssues: avoids vague 'you realize' phrasing", () => {
 
 test("evaluateProximityTransition: avoids adjective 'touching moment' false positive", () => {
     const res = evaluateProximityTransition("It was a touching moment.", "Distant");
+    assert.equal(res.from, "Distant");
     assert.equal(res.next, "Distant");
     assert.equal(res.changed, false);
     assert.equal(res.skipped, false);
@@ -116,6 +120,19 @@ test("evaluateProximityTransition: does not mark skipped when intermediate evide
     assert.equal(res.next, "Touching");
     assert.equal(res.skipped, false);
     assert.equal(res.evidence.includes("Nearby"), true);
+});
+
+test("scoreSilenceOrPause: ignores action-only roleplay replies", () => {
+    const res = scoreSilenceOrPause("*nods*");
+    assert.equal(res.note, null);
+});
+
+test("detectEscalationSignals: avoids negated intimacy cues", () => {
+    const signals = detectEscalationSignals(
+        "He doesn't kiss you. He keeps his distance.",
+        {tone: "neutral", intensity: "low"},
+    );
+    assert.equal(signals.some((s) => s.type === "physical_intimacy"), false);
 });
 
 test("detectMemoryEvents: can emit multiple unique events", () => {

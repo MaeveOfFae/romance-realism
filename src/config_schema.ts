@@ -14,11 +14,20 @@ export type ConfigSchema = {
     ui_max_notes?: number; // 1..50
     ui_show_status?: boolean | number;
     ui_show_timestamps?: boolean | number;
-    max_ui_notes_per_20?: number; // -1 disables override, otherwise 0..20
+    // Note quota (applies to non-critical guidance; affects UI + prompt injection).
+    // Prefer `max_notes_per_20`; `max_ui_notes_per_20` is kept for backwards compatibility.
+    max_notes_per_20?: number; // -1 disables override, otherwise 0..20
+    max_ui_notes_per_20?: number; // deprecated alias of `max_notes_per_20`
 
     // UI debug
     ui_debug_scoring?: boolean | number;
     ui_debug_max_candidates?: number; // 1..50
+
+    // Prompt injection (system prompt only; never written into chat log).
+    prompt_injection_enabled?: boolean | number;
+    prompt_injection_include_scene?: boolean | number;
+    prompt_injection_max_parts?: number; // 1..6
+    prompt_injection_max_chars?: number; // 100..4000
 
     // Note toggles
     note_scene_summary?: boolean | number;
@@ -40,8 +49,9 @@ export type ConfigSchema = {
 };
 
 export type NormalizedConfig = Omit<ConfigSchema, 'enabled' | 'strictness' | 'memory_depth'
-    | 'ui_enabled' | 'ui_max_notes' | 'ui_show_status' | 'ui_show_timestamps' | 'max_ui_notes_per_20'
+    | 'ui_enabled' | 'ui_max_notes' | 'ui_show_status' | 'ui_show_timestamps' | 'max_notes_per_20' | 'max_ui_notes_per_20'
     | 'ui_debug_scoring' | 'ui_debug_max_candidates'
+    | 'prompt_injection_enabled' | 'prompt_injection_include_scene' | 'prompt_injection_max_parts' | 'prompt_injection_max_chars'
     | 'tune_phase_weight_threshold' | 'tune_delta_score_threshold' | 'tune_ui_note_parts'
     | 'note_scene_summary' | 'note_emotion_delta' | 'note_phase' | 'note_proximity' | 'note_consent'
     | 'note_subtext' | 'note_silence' | 'note_drift' | 'note_scar_recall'> & {
@@ -53,9 +63,14 @@ export type NormalizedConfig = Omit<ConfigSchema, 'enabled' | 'strictness' | 'me
     ui_max_notes: number;
     ui_show_status: boolean;
     ui_show_timestamps: boolean;
-    max_ui_notes_per_20: number | null;
+    max_notes_per_20: number | null;
     ui_debug_scoring: boolean;
     ui_debug_max_candidates: number;
+
+    prompt_injection_enabled: boolean;
+    prompt_injection_include_scene: boolean;
+    prompt_injection_max_parts: number;
+    prompt_injection_max_chars: number;
 
     note_scene_summary: boolean;
     note_emotion_delta: boolean;
@@ -80,9 +95,14 @@ export const DEFAULT_CONFIG: NormalizedConfig = {
     ui_max_notes: 10,
     ui_show_status: true,
     ui_show_timestamps: true,
-    max_ui_notes_per_20: null,
+    max_notes_per_20: null,
     ui_debug_scoring: false,
     ui_debug_max_candidates: 12,
+
+    prompt_injection_enabled: true,
+    prompt_injection_include_scene: true,
+    prompt_injection_max_parts: 3,
+    prompt_injection_max_chars: 900,
 
     note_scene_summary: true,
     note_emotion_delta: true,
@@ -131,16 +151,27 @@ export function normalizeConfig(cfg?: ConfigSchema | null): NormalizedConfig {
         : DEFAULT_CONFIG.ui_max_notes;
     const ui_show_status = asBool(src.ui_show_status, DEFAULT_CONFIG.ui_show_status);
     const ui_show_timestamps = asBool(src.ui_show_timestamps, DEFAULT_CONFIG.ui_show_timestamps);
-    const maxOverrideRaw = (typeof src.max_ui_notes_per_20 === 'number' && Number.isFinite(src.max_ui_notes_per_20))
-        ? Math.floor(src.max_ui_notes_per_20)
-        : null;
-    const max_ui_notes_per_20 = maxOverrideRaw == null
-        ? DEFAULT_CONFIG.max_ui_notes_per_20
+    const maxOverrideRaw = (typeof src.max_notes_per_20 === 'number' && Number.isFinite(src.max_notes_per_20))
+        ? Math.floor(src.max_notes_per_20)
+        : ((typeof src.max_ui_notes_per_20 === 'number' && Number.isFinite(src.max_ui_notes_per_20))
+            ? Math.floor(src.max_ui_notes_per_20)
+            : null);
+    const max_notes_per_20 = maxOverrideRaw == null
+        ? DEFAULT_CONFIG.max_notes_per_20
         : (maxOverrideRaw < 0 ? null : clamp(maxOverrideRaw, 0, 20));
     const ui_debug_scoring = asBool(src.ui_debug_scoring, DEFAULT_CONFIG.ui_debug_scoring);
     const ui_debug_max_candidates = (typeof src.ui_debug_max_candidates === 'number')
         ? clamp(Math.floor(src.ui_debug_max_candidates), 1, 50)
         : DEFAULT_CONFIG.ui_debug_max_candidates;
+
+    const prompt_injection_enabled = asBool(src.prompt_injection_enabled, DEFAULT_CONFIG.prompt_injection_enabled);
+    const prompt_injection_include_scene = asBool(src.prompt_injection_include_scene, DEFAULT_CONFIG.prompt_injection_include_scene);
+    const prompt_injection_max_parts = (typeof src.prompt_injection_max_parts === 'number')
+        ? clamp(Math.floor(src.prompt_injection_max_parts), 1, 6)
+        : DEFAULT_CONFIG.prompt_injection_max_parts;
+    const prompt_injection_max_chars = (typeof src.prompt_injection_max_chars === 'number')
+        ? clamp(Math.floor(src.prompt_injection_max_chars), 100, 4000)
+        : DEFAULT_CONFIG.prompt_injection_max_chars;
 
     const note_scene_summary = asBool(src.note_scene_summary, DEFAULT_CONFIG.note_scene_summary);
     const note_emotion_delta = asBool(src.note_emotion_delta, DEFAULT_CONFIG.note_emotion_delta);
@@ -170,9 +201,14 @@ export function normalizeConfig(cfg?: ConfigSchema | null): NormalizedConfig {
         ui_max_notes,
         ui_show_status,
         ui_show_timestamps,
-        max_ui_notes_per_20,
+        max_notes_per_20,
         ui_debug_scoring,
         ui_debug_max_candidates,
+
+        prompt_injection_enabled,
+        prompt_injection_include_scene,
+        prompt_injection_max_parts,
+        prompt_injection_max_chars,
 
         note_scene_summary,
         note_emotion_delta,
@@ -191,8 +227,9 @@ export function normalizeConfig(cfg?: ConfigSchema | null): NormalizedConfig {
         ...Object.keys(src).reduce((acc: Record<string, unknown>, k) => {
             if (![
                 'enabled', 'strictness', 'memory_depth',
-                'ui_enabled', 'ui_max_notes', 'ui_show_status', 'ui_show_timestamps', 'max_ui_notes_per_20',
+                'ui_enabled', 'ui_max_notes', 'ui_show_status', 'ui_show_timestamps', 'max_notes_per_20', 'max_ui_notes_per_20',
                 'ui_debug_scoring', 'ui_debug_max_candidates',
+                'prompt_injection_enabled', 'prompt_injection_include_scene', 'prompt_injection_max_parts', 'prompt_injection_max_chars',
                 'note_scene_summary', 'note_emotion_delta', 'note_phase', 'note_proximity', 'note_consent',
                 'note_subtext', 'note_silence', 'note_drift', 'note_scar_recall',
                 'tune_phase_weight_threshold', 'tune_delta_score_threshold', 'tune_ui_note_parts',
@@ -217,9 +254,14 @@ export function validateConfig(cfg?: ConfigSchema | null): string[] {
     if (cfg.ui_max_notes != null && (typeof cfg.ui_max_notes !== 'number' || !Number.isFinite(cfg.ui_max_notes))) errors.push('`ui_max_notes` must be a number.');
     if (cfg.ui_show_status != null && !(typeof cfg.ui_show_status === 'boolean' || typeof cfg.ui_show_status === 'number')) errors.push('`ui_show_status` must be a boolean (or 0/1).');
     if (cfg.ui_show_timestamps != null && !(typeof cfg.ui_show_timestamps === 'boolean' || typeof cfg.ui_show_timestamps === 'number')) errors.push('`ui_show_timestamps` must be a boolean (or 0/1).');
+    if (cfg.max_notes_per_20 != null && (typeof cfg.max_notes_per_20 !== 'number' || !Number.isFinite(cfg.max_notes_per_20))) errors.push('`max_notes_per_20` must be a number.');
     if (cfg.max_ui_notes_per_20 != null && (typeof cfg.max_ui_notes_per_20 !== 'number' || !Number.isFinite(cfg.max_ui_notes_per_20))) errors.push('`max_ui_notes_per_20` must be a number.');
     if (cfg.ui_debug_scoring != null && !(typeof cfg.ui_debug_scoring === 'boolean' || typeof cfg.ui_debug_scoring === 'number')) errors.push('`ui_debug_scoring` must be a boolean (or 0/1).');
     if (cfg.ui_debug_max_candidates != null && (typeof cfg.ui_debug_max_candidates !== 'number' || !Number.isFinite(cfg.ui_debug_max_candidates))) errors.push('`ui_debug_max_candidates` must be a number.');
+    if (cfg.prompt_injection_enabled != null && !(typeof cfg.prompt_injection_enabled === 'boolean' || typeof cfg.prompt_injection_enabled === 'number')) errors.push('`prompt_injection_enabled` must be a boolean (or 0/1).');
+    if (cfg.prompt_injection_include_scene != null && !(typeof cfg.prompt_injection_include_scene === 'boolean' || typeof cfg.prompt_injection_include_scene === 'number')) errors.push('`prompt_injection_include_scene` must be a boolean (or 0/1).');
+    if (cfg.prompt_injection_max_parts != null && (typeof cfg.prompt_injection_max_parts !== 'number' || !Number.isFinite(cfg.prompt_injection_max_parts))) errors.push('`prompt_injection_max_parts` must be a number.');
+    if (cfg.prompt_injection_max_chars != null && (typeof cfg.prompt_injection_max_chars !== 'number' || !Number.isFinite(cfg.prompt_injection_max_chars))) errors.push('`prompt_injection_max_chars` must be a number.');
     if (cfg.tune_phase_weight_threshold != null && (typeof cfg.tune_phase_weight_threshold !== 'number' || !Number.isFinite(cfg.tune_phase_weight_threshold))) errors.push('`tune_phase_weight_threshold` must be a number.');
     if (cfg.tune_delta_score_threshold != null && (typeof cfg.tune_delta_score_threshold !== 'number' || !Number.isFinite(cfg.tune_delta_score_threshold))) errors.push('`tune_delta_score_threshold` must be a number.');
     if (cfg.tune_ui_note_parts != null && (typeof cfg.tune_ui_note_parts !== 'number' || !Number.isFinite(cfg.tune_ui_note_parts))) errors.push('`tune_ui_note_parts` must be a number.');

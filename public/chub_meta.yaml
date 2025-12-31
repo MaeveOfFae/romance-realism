@@ -64,12 +64,42 @@ config_schema:
       maximum: 1
       default: 1
       description: "Show timestamps on each note."
+    max_notes_per_20:
+      type: integer
+      minimum: -1
+      maximum: 20
+      default: -1
+      description: "Override strictness throttle (max non-critical notes per ~20 turns). Applies to UI notes + prompt injection. Use -1 for auto."
     max_ui_notes_per_20:
       type: integer
       minimum: -1
       maximum: 20
       default: -1
-      description: "Override strictness throttle (max UI notes per ~20 turns). Use -1 for auto."
+      description: "Legacy alias of max_notes_per_20 (deprecated)."
+    prompt_injection_enabled:
+      type: integer
+      minimum: 0
+      maximum: 1
+      default: 1
+      description: "Inject selected guidance into the next message's system prompt (never into chat transcript)."
+    prompt_injection_include_scene:
+      type: integer
+      minimum: 0
+      maximum: 1
+      default: 1
+      description: "Include a compact scene summary in the injected system prompt when available."
+    prompt_injection_max_parts:
+      type: integer
+      minimum: 1
+      maximum: 6
+      default: 3
+      description: "Max guidance bullets injected into the next system prompt."
+    prompt_injection_max_chars:
+      type: integer
+      minimum: 100
+      maximum: 4000
+      default: 900
+      description: "Max characters for the injected system prompt."
     ui_debug_scoring:
       type: integer
       minimum: 0

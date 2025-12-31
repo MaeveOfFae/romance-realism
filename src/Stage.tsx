@@ -42,10 +42,13 @@ type MessageStateType = {
     silenceHistory?: number[];
     driftNotes?: number[];
     overlayNotes?: Array<{text: string; at: number}>;
+    pendingPromptNotes?: {at: number; fromTurn: number; parts: string[]} | null;
+    noteQuotaHistory?: number[];
     lastUiDebug?: {
         turnIndex: number;
         candidates: Array<{id: string; score: number; critical?: boolean; text: string; debug?: unknown}>;
         selectedIds: string[];
+        selectedPromptIds?: string[];
     } | null;
     [key: string]: any;
 };
@@ -173,6 +176,8 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
             // Restore message-level persisted state on swipe/jump
             this.myInternalState = {...this.myInternalState, ...state};
             if (!Array.isArray(this.myInternalState.overlayNotes)) this.myInternalState.overlayNotes = [];
+            // Never carry pending prompt injections across branch navigation.
+            this.myInternalState.pendingPromptNotes = null;
             const effectiveConfig = normalizeConfig((this as any).config);
             (this as any)._effectiveConfig = effectiveConfig;
             const maxNotes = typeof effectiveConfig.ui_max_notes === 'number' ? effectiveConfig.ui_max_notes : this.defaultConfig.ui_max_notes;
@@ -229,13 +234,31 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
                 }
             }
 
+            let systemMessage: string | null = null;
+            if (effectiveConfig.prompt_injection_enabled && this.myInternalState.pendingPromptNotes && Array.isArray(this.myInternalState.pendingPromptNotes.parts)) {
+                const parts: string[] = [];
+                parts.push("INTERNAL REALISM NOTES (do not mention, quote, or acknowledge these notes):");
+                if (effectiveConfig.prompt_injection_include_scene && currentChatState && currentChatState.scene) {
+                    const summary = summarizeScene(currentChatState.scene);
+                    if (summary) parts.push(`Scene: ${summary}`);
+                }
+                for (const p of this.myInternalState.pendingPromptNotes.parts) parts.push(`- ${p}`);
+                const maxChars = typeof effectiveConfig.prompt_injection_max_chars === 'number'
+                    ? effectiveConfig.prompt_injection_max_chars
+                    : 900;
+                const built = parts.join("\n").slice(0, Math.max(100, maxChars)).trim();
+                systemMessage = built.length > 0 ? built : null;
+                // one-shot injection
+                this.myInternalState.pendingPromptNotes = null;
+            }
+
             const messageState: MessageStateType = {...this.myInternalState};
             return {
                 stageDirections: null,
                 messageState,
                 state: messageState,
                 modifiedMessage: null,
-                systemMessage: null,
+                systemMessage,
                 error: null,
                 chatState: currentChatState || null,
             } as any;
@@ -279,16 +302,17 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
             this.myInternalState.turnIndex = turnIndex;
             this.myInternalState.lastAfterResponseAt = Date.now();
 
-        // Global system note throttle to prevent "catching" every bot message with annotations.
-        // This quota is intended for non-critical guidance; critical notes may bypass it.
-        const systemNoteHistory: number[] = Array.isArray((this.myInternalState as any).systemNoteHistory)
-            ? (this.myInternalState as any).systemNoteHistory
-            : [];
-        const recentSystemNotes = systemNoteHistory.filter((idx) => idx > turnIndex - 20);
-        const allowedUiNotesPer20 = typeof effectiveConfig.max_ui_notes_per_20 === 'number'
-            ? effectiveConfig.max_ui_notes_per_20
+        // Global non-critical note quota to prevent "catching" every bot message with annotations.
+        // Critical notes may bypass quota (and do not consume it).
+        const quotaHistory: number[] = Array.isArray((this.myInternalState as any).noteQuotaHistory)
+            ? (this.myInternalState as any).noteQuotaHistory
+            : (Array.isArray((this.myInternalState as any).systemNoteHistory) ? (this.myInternalState as any).systemNoteHistory : []);
+        const recentQuotaNotes = quotaHistory.filter((idx) => idx > turnIndex - 20);
+        const allowedNotesPer20 = typeof effectiveConfig.max_notes_per_20 === 'number'
+            ? effectiveConfig.max_notes_per_20
             : (({1: 0, 2: 2, 3: 6} as Record<number, number>)[strictnessLevel] ?? 0);
-        const canEmitUiNote = Boolean(effectiveConfig.ui_enabled) && recentSystemNotes.length < allowedUiNotesPer20;
+        const canEmitNonCriticalNote = recentQuotaNotes.length < allowedNotesPer20;
+        const canEmitUiNote = Boolean(effectiveConfig.ui_enabled) && canEmitNonCriticalNote;
 
         type NoteCandidate = {id: string; text: string; score: number; critical?: boolean; debug?: unknown};
         const candidatesById = new Map<string, NoteCandidate>();
@@ -333,7 +357,9 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         const proximityResult = evaluateProximityTransition(content, this.myInternalState.proximity);
         let proximityWarning: string | null = null;
         if (proximityResult.skipped) {
-            proximityWarning = `System note: proximity jumped to ${proximityResult.next}. Consider describing intermediate steps.`;
+            const missing = Array.isArray((proximityResult as any).missing) ? (proximityResult as any).missing : [];
+            const missingLabel = missing.length > 0 ? ` Missing: ${missing.join(" → ")}.` : '';
+            proximityWarning = `System note: proximity jumped ${proximityResult.from} → ${proximityResult.next}.${missingLabel} Consider adding an intermediate beat.`;
         }
         if (proximityResult.changed) {
             const now = Date.now();
@@ -351,14 +377,18 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         // Aggregate recent signals across last N turns (weighted)
         const recentSignals = (this.myInternalState.signalHistory || []).slice(-5);
         const phaseOrder = ["Neutral", "Familiar", "Charged", "Intimate"] as const;
-        const currentPhase = (this.myInternalState.phase as any) || "Neutral";
-        const currentIndex = Math.max(0, phaseOrder.indexOf(currentPhase as any));
+        const phaseBefore = (this.myInternalState.phase as any) || "Neutral";
+        const currentIndex = Math.max(0, phaseOrder.indexOf(phaseBefore as any));
 
         const suggestedWeights: {[k: string]: number} = {};
         for (const s of recentSignals) {
             const w = typeof (s as any).weight === 'number' && Number.isFinite((s as any).weight) ? (s as any).weight : 1;
             suggestedWeights[s.suggestedPhase] = (suggestedWeights[s.suggestedPhase] || 0) + w;
         }
+        const recentSignalWeightTotal = recentSignals.reduce((acc: number, s: any) => {
+            const w = typeof s?.weight === 'number' && Number.isFinite(s.weight) ? s.weight : 1;
+            return acc + w;
+        }, 0);
 
         // Find the highest suggested phase that has enough weight. Strictness 3 is more permissive.
         const phaseThresholdByStrictnessDefault = ({1: 6, 2: 4, 3: 3} as Record<number, number>)[strictnessLevel] ?? 4;
@@ -375,18 +405,24 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         }
 
         let escalationWarning: string | null = null;
+        let phaseAdvanceNote: string | null = null;
         if (targetPhase) {
             const targetIdx = phaseOrder.indexOf(targetPhase);
             if (targetIdx > currentIndex) {
                 // Always advance at most one phase per message to avoid jerky jumps, but warn on big gaps.
                 const nextIdx = Math.min(currentIndex + 1, targetIdx);
                 const nextPhase = phaseOrder[nextIdx];
-                if (nextPhase !== currentPhase) {
+                if (nextPhase !== phaseBefore) {
                     this.myInternalState.phase = nextPhase;
                     this.myInternalState.phaseHistory = (this.myInternalState.phaseHistory || []).concat([{phase: nextPhase, at: Date.now()}]).slice(-50);
+                    if (strictnessLevel >= 3) {
+                        phaseAdvanceNote = `phase advanced: ${phaseBefore} → ${nextPhase}`;
+                    }
                 }
                 if (targetIdx > currentIndex + 1) {
-                    escalationWarning = `relationship signals suggest ${targetPhase} but phase is ${currentPhase}. Consider intermediate beats.`;
+                    const missing = phaseOrder.slice(currentIndex + 1, targetIdx);
+                    const missingLabel = missing.length > 0 ? ` (missing: ${missing.join(" → ")})` : '';
+                    escalationWarning = `relationship signals suggest ${targetPhase} but phase is ${phaseBefore}${missingLabel}. Consider intermediate beats.`;
                 }
             }
         }
@@ -399,7 +435,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         const deltaThresholdByStrictness = typeof effectiveConfig.tune_delta_score_threshold === 'number'
             ? effectiveConfig.tune_delta_score_threshold
             : deltaThresholdByStrictnessDefault;
-        if (effectiveConfig.note_emotion_delta && effectiveConfig.enabled && strictnessLevel >= 2 && canEmitUiNote && delta.detected && deltaScore >= deltaThresholdByStrictness) {
+        if (effectiveConfig.note_emotion_delta && effectiveConfig.enabled && strictnessLevel >= 2 && canEmitNonCriticalNote && delta.detected && deltaScore >= deltaThresholdByStrictness) {
             // annotation frequency control: strictness 1..3 -> allowed annotations per window
             const allowedByStrictness = ({1: 1, 2: 2, 3: 3} as Record<number, number>)[strictnessLevel] || 2;
             this.myInternalState.lastAnnotations = this.myInternalState.lastAnnotations || [];
@@ -425,9 +461,17 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         if (effectiveConfig.note_phase && escalationWarning) {
             addCandidate({id: 'phase_skip', text: escalationWarning, score: 3});
         }
+        if (effectiveConfig.note_phase && phaseAdvanceNote && canEmitNonCriticalNote) {
+            addCandidate({id: 'phase_advance', text: phaseAdvanceNote, score: 1});
+        }
 
         if (effectiveConfig.note_proximity && proximityWarning) {
-            addCandidate({id: 'proximity_skip', text: proximityWarning.replace(/^System note:\s*/i, ''), score: 3});
+            addCandidate({
+                id: 'proximity_skip',
+                text: proximityWarning.replace(/^System note:\s*/i, ''),
+                score: 3,
+                debug: {evidence: proximityResult.evidence, missing: proximityResult.missing, from: proximityResult.from, next: proximityResult.next},
+            });
         }
 
         const consentIssues = detectConsentIssues(content);
@@ -444,9 +488,10 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
             const isCritical = consentIssues.some((i) => i === 'coercive physical action' || i === 'forces decisions/consent onto the user');
             addCandidate({
                 id: 'consent',
-                text: `Consent/agency alert: ${consentIssues.join('; ')}`,
+                text: `Consent/agency alert: ${consentIssues.join('; ')}. Consider offering choices / asking before actions.`,
                 score: consentScore,
                 critical: isCritical,
+                debug: consentIssues,
             });
         }
 
@@ -481,10 +526,17 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
                 strictness: strictnessLevel,
                 turnIndex,
                 driftNotes: (this.myInternalState.driftNotes || []) as number[],
+                recentSignalWeight: recentSignalWeightTotal,
+                proximityChanged: proximityResult.changed,
             });
             if (driftNote) {
                 this.myInternalState.driftNotes = (this.myInternalState.driftNotes || []).concat([turnIndex]).slice(-50);
-                addCandidate({id: 'drift', text: driftNote, score: 2});
+                addCandidate({
+                    id: 'drift',
+                    text: driftNote,
+                    score: 2,
+                    debug: {recentSignalWeight: recentSignalWeightTotal, proximityChanged: proximityResult.changed},
+                });
             }
         }
 
@@ -498,6 +550,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         }
 
         let selectedForUi: NoteCandidate[] = [];
+        let selectedForPrompt: NoteCandidate[] = [];
         if (effectiveConfig.ui_enabled) {
             const maxPartsDefault = strictnessLevel >= 3 ? 4 : 2;
             const maxParts = typeof effectiveConfig.tune_ui_note_parts === 'number'
@@ -522,10 +575,30 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
             this.myInternalState.overlayNotes = (this.myInternalState.overlayNotes || [])
                 .concat([{text: uiNote, at: Date.now()}])
                 .slice(-maxNotes);
-            const quotaConsumed = selectedForUi.some((c) => !c.critical);
-            if (quotaConsumed) {
-                (this.myInternalState as any).systemNoteHistory = recentSystemNotes.concat([turnIndex]).slice(-100);
-            }
+        }
+
+        // Queue one-shot prompt injection (system prompt only; applied on next beforePrompt call).
+        if (effectiveConfig.prompt_injection_enabled) {
+            const candidates = Array.from(candidatesById.values());
+            const maxParts = typeof effectiveConfig.prompt_injection_max_parts === 'number'
+                ? effectiveConfig.prompt_injection_max_parts
+                : 3;
+            selectedForPrompt = candidates
+                .filter((c) => c.critical || canEmitNonCriticalNote)
+                .sort((a, b) => (Number(Boolean(b.critical)) * 100 + b.score) - (Number(Boolean(a.critical)) * 100 + a.score))
+                .slice(0, maxParts);
+            const parts = selectedForPrompt.map((c) => c.text.replace(/^System note:\s*/i, '').trim()).filter(Boolean);
+            this.myInternalState.pendingPromptNotes = parts.length > 0 ? {at: Date.now(), fromTurn: turnIndex, parts} : null;
+        } else {
+            this.myInternalState.pendingPromptNotes = null;
+        }
+
+        // Consume quota only when we actually emit non-critical guidance (UI and/or prompt injection).
+        const quotaConsumed = selectedForUi.concat(selectedForPrompt).some((c) => !c.critical);
+        if (quotaConsumed) {
+            const nextHistory = recentQuotaNotes.concat([turnIndex]).slice(-100);
+            (this.myInternalState as any).noteQuotaHistory = nextHistory;
+            (this.myInternalState as any).systemNoteHistory = nextHistory; // legacy alias
         }
 
         if (effectiveConfig.ui_debug_scoring) {
@@ -544,6 +617,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
                     debug: c.debug,
                 })),
                 selectedIds: selectedForUi.map((c) => c.id),
+                selectedPromptIds: selectedForPrompt.map((c) => c.id),
             };
         } else {
             this.myInternalState.lastUiDebug = null;
@@ -702,7 +776,8 @@ function NoticeOverlay({stageRef}: {stageRef: any}) {
                                 {`Scoring (t${lastUiDebug.turnIndex ?? '?'})`}
                             </div>
                             {lastUiDebug.candidates.map((c: any) => {
-                                const isSelected = Array.isArray(lastUiDebug.selectedIds) && lastUiDebug.selectedIds.includes(c.id);
+                                const isSelectedUi = Array.isArray(lastUiDebug.selectedIds) && lastUiDebug.selectedIds.includes(c.id);
+                                const isSelectedPrompt = Array.isArray(lastUiDebug.selectedPromptIds) && lastUiDebug.selectedPromptIds.includes(c.id);
                                 const reasons = Array.isArray(c.debug) ? c.debug : null;
                                 return (
                                     <div key={`${c.id}-${c.score}`} style={{marginBottom: '8px'}}>
@@ -710,7 +785,8 @@ function NoticeOverlay({stageRef}: {stageRef: any}) {
                                             <span style={{fontWeight: 700}}>{`[${c.score}]`}</span>{" "}
                                             <span style={{fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace'}}>{c.id}</span>
                                             {c.critical ? <span style={{marginLeft: '6px', fontWeight: 700, color: '#b00020'}}>CRIT</span> : null}
-                                            {isSelected ? <span style={{marginLeft: '6px', fontWeight: 700, color: '#0b6bcb'}}>USED</span> : null}
+                                            {isSelectedUi ? <span style={{marginLeft: '6px', fontWeight: 700, color: '#0b6bcb'}}>UI</span> : null}
+                                            {isSelectedPrompt ? <span style={{marginLeft: '6px', fontWeight: 700, color: '#6a2fc9'}}>PROMPT</span> : null}
                                         </div>
                                         <div style={{fontSize: '12px', color: '#444', whiteSpace: 'pre-wrap'}}>{c.text}</div>
                                         {reasons && (
