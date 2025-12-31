@@ -40,6 +40,33 @@ function sumWeights(hits: WeightedHit[]): number {
     return hits.reduce((acc, h) => acc + (Number.isFinite(h.weight) ? h.weight : 0), 0);
 }
 
+function isNegatedAt(text: string, matchIndex: number, windowChars: number = 24): boolean {
+    if (!text || matchIndex <= 0) return false;
+    const start = Math.max(0, matchIndex - windowChars);
+    const prefix = text.slice(start, matchIndex);
+    // If there's a hard boundary punctuation close-by, treat as not negating this match.
+    if (/[.!?]/.test(prefix)) return false;
+    return /\b(?:not|never|no|hardly|scarcely|without|isn'?t|aren'?t|don'?t|didn'?t|won'?t|can'?t|couldn'?t)\b/i.test(prefix);
+}
+
+function scoreRegexWithNegation(text: string, re: RegExp, weight: number, label: string): {score: number; reasons: WeightedHit[]} {
+    if (!text) return {score: 0, reasons: []};
+    const flags = re.flags.includes("g") ? re.flags : `${re.flags}g`;
+    const global = new RegExp(re.source, flags);
+    let m: RegExpExecArray | null;
+    let score = 0;
+    let count = 0;
+    const maxCount = 6;
+    while ((m = global.exec(text)) != null) {
+        if (m.index == null) continue;
+        if (isNegatedAt(text, m.index)) continue;
+        score += weight;
+        count += 1;
+        if (count >= maxCount) break;
+    }
+    return {score, reasons: score !== 0 ? [{label, weight: score}] : []};
+}
+
 function extractIntensity(text: string): EmotionIntensity {
     const t = text || "";
     let score = 0;
@@ -67,62 +94,78 @@ function extractIntensity(text: string): EmotionIntensity {
     return "low";
 }
 
-export function extractEmotionSnapshot(text: string): EmotionSnapshot {
-    if (!text || text.trim().length === 0) return {tone: 'neutral', intensity: 'low'};
-
+export function scoreEmotionSnapshot(text: string): {
+    snapshot: EmotionSnapshot;
+    toneScores: Array<{tone: string; score: number; reasons: WeightedHit[]}>;
+} {
+    if (!text || text.trim().length === 0) {
+        return {snapshot: {tone: "neutral", intensity: "low"}, toneScores: []};
+    }
     const t = text;
     const intensity = extractIntensity(t);
 
-    const sadness = scoreFromPatterns(t, [
-        /\b(sad|sorrow|tear(?:s|ful)?|cry(?:ing)?|sob(?:bing)?|regret(?:s|ted)?|heartbroken|grief)\b/i,
-        /\b(apolog(?:y|ize|ise)|sorry)\b/i,
-        /\b(hurt|aching|broken)\b/i,
+    const toneScore = (tone: string, parts: Array<{label: string; re: RegExp; weight: number}>) => {
+        const reasons: WeightedHit[] = [];
+        let score = 0;
+        for (const p of parts) {
+            const hit = scoreRegexWithNegation(t, p.re, p.weight, p.label);
+            score += hit.score;
+            if (hit.reasons.length) reasons.push(...hit.reasons);
+        }
+        return {tone, score, reasons};
+    };
+
+    const sadness = toneScore("sad", [
+        {label: "sad_words", re: /\b(sad|sorrow|tear(?:s|ful)?|cry(?:ing)?|sob(?:bing)?|regret(?:s|ted)?|heartbroken|grief|mourn(?:s|ing)?)\b/i, weight: 2},
+        {label: "apology", re: /\b(apolog(?:y|ize|ise)|sorry)\b/i, weight: 1},
+        {label: "hurt", re: /\b(hurt|aching|broken|heavy in (?:his|her|their|your) chest)\b/i, weight: 1},
+        {label: "sigh", re: /\b(sighs?|voice cracks?|wipes? (?:a|his|her|their) tears?)\b/i, weight: 1},
     ]);
 
-    const anger = scoreFromPatterns(t, [
-        /\b(angry|furious|enraged|livid|mad|rage)\b/i,
-        /\b(snaps?|snarls?|glares?|seeth(?:es|ing))\b/i,
-        /\b(shouts?|yells?|screams?)\b/i,
-        /\bhow dare you\b/i,
+    const anger = toneScore("angry", [
+        {label: "anger_words", re: /\b(angry|furious|enraged|livid|mad|rage)\b/i, weight: 2},
+        {label: "aggressive_verbs", re: /\b(snaps?|snarls?|glares?|seeth(?:es|ing)|growls?)\b/i, weight: 2},
+        {label: "shouting", re: /\b(shouts?|yells?|screams?)\b/i, weight: 2},
+        {label: "dare", re: /\bhow dare you\b/i, weight: 2},
     ]);
 
-    const anxiety = scoreFromPatterns(t, [
-        /\b(anxious|nervous|worried|uneasy|afraid|scared|fear(?:ful)?|panic(?:s|king)?)\b/i,
-        /\b(trembl(?:e|es|ing)|shak(?:e|es|ing))\b/i,
+    const anxiety = toneScore("anxious", [
+        {label: "anxiety_words", re: /\b(anxious|nervous|worried|uneasy|afraid|scared|fear(?:ful)?|panic(?:s|king)?|dread)\b/i, weight: 2},
+        {label: "tremble", re: /\b(trembl(?:e|es|ing)|shak(?:e|es|ing)|fidgets?|wrings? (?:his|her|their) hands)\b/i, weight: 1},
+        {label: "racing", re: /\b(heart races|can'?t breathe|short of breath)\b/i, weight: 1},
     ]);
 
-    const affection = scoreFromPatterns(t, [
-        /\b(love|adore|cherish|admire)\b/i,
-        /\b(miss you|care about you)\b/i,
-        /\b(affectionately|tenderly|softly)\b/i,
+    const affection = toneScore("affection", [
+        {label: "love_words", re: /\b(love|adore|cherish|treasure|fond)\b/i, weight: 2},
+        {label: "care_miss", re: /\b(miss you|care about you)\b/i, weight: 2},
+        {label: "tender", re: /\b(affectionately|tenderly|softly|warmly|gentle|with a soft smile)\b/i, weight: 1},
+        {label: "smile", re: /\b(smiles?|grins?)\b/i, weight: 1},
     ]);
 
-    const embarrassment = scoreFromPatterns(t, [
-        /\b(blush(?:es|ed|ing)?|flustered|embarrass(?:ed|ing)|self-conscious)\b/i,
+    const embarrassment = toneScore("embarrassed", [
+        {label: "blush", re: /\b(blush(?:es|ed|ing)?|flustered|embarrass(?:ed|ing)|self-conscious|flush(?:es|ed)?)\b/i, weight: 2},
+        {label: "awkward_tells", re: /\b(looks away|averts (?:his|her|their) gaze|clears? (?:his|her|their) throat|stammers?)\b/i, weight: 1},
     ]);
 
-    const jealousy = scoreFromPatterns(t, [
-        /\b(jealous|possessive|envious|envy)\b/i,
+    const jealousy = toneScore("jealous", [
+        {label: "jealous_words", re: /\b(jealous|possessive|envious|envy)\b/i, weight: 2},
+        {label: "tightens", re: /\b(something tightens|a sting of jealousy|can'?t stand the thought)\b/i, weight: 1},
     ]);
 
-    const excitement = scoreFromPatterns(t, [
-        /\b(excited|thrilled|giddy|eager|can'?t wait)\b/i,
-    ]) + (countMatches(t, /!/g) >= 2 ? 1 : 0);
-
-    const tense = scoreFromPatterns(t, [
-        /\b(tense|awkward|stiff|rigid|strained)\b/i,
+    const excitement = toneScore("excited", [
+        {label: "excited_words", re: /\b(excited|thrilled|giddy|eager|delighted|can'?t wait)\b/i, weight: 2},
+        {label: "laugh", re: /\b(laughs?|chuckles?)\b/i, weight: 1},
+        {label: "bright", re: /\b(eyes light up|can'?t help but smile)\b/i, weight: 1},
     ]);
 
-    const toneScores: Array<{tone: string; score: number}> = [
-        {tone: "affection", score: affection},
-        {tone: "angry", score: anger},
-        {tone: "anxious", score: anxiety},
-        {tone: "sad", score: sadness},
-        {tone: "embarrassed", score: embarrassment},
-        {tone: "jealous", score: jealousy},
-        {tone: "excited", score: excitement},
-        {tone: "tense", score: tense},
-    ].sort((a, b) => b.score - a.score);
+    const tense = toneScore("tense", [
+        {label: "tense_words", re: /\b(tense|awkward|stiff|rigid|strained|uneasy)\b/i, weight: 2},
+        {label: "silence", re: /\b(an awkward silence|a beat of silence)\b/i, weight: 1},
+        {label: "hesitation", re: /\b(pauses?|hesitates?|swallows?)\b/i, weight: 1},
+    ]);
+
+    const toneScores = [affection, anger, anxiety, sadness, embarrassment, jealousy, excitement, tense]
+        .sort((a, b) => b.score - a.score);
 
     const best = toneScores[0];
     const tone = best && best.score > 0 ? best.tone : "neutral";
@@ -131,7 +174,11 @@ export function extractEmotionSnapshot(text: string): EmotionSnapshot {
     const forcedMedium = tone === "sad" || tone === "affection";
     const adjustedIntensity: EmotionIntensity = forcedMedium && intensity === "low" ? "medium" : intensity;
 
-    return {tone, intensity: adjustedIntensity};
+    return {snapshot: {tone, intensity: adjustedIntensity}, toneScores};
+}
+
+export function extractEmotionSnapshot(text: string): EmotionSnapshot {
+    return scoreEmotionSnapshot(text).snapshot;
 }
 
 export function evaluateEmotionalDelta(current: EmotionSnapshot, recent: EmotionSnapshot[], content?: string) {

@@ -20,6 +20,11 @@ test("extractEmotionSnapshot: sad keyword -> sad/medium", () => {
     assert.deepEqual(snapshot, {tone: "sad", intensity: "medium"});
 });
 
+test("extractEmotionSnapshot: negation avoids angry classification", () => {
+    const snapshot = extractEmotionSnapshot("I'm not angry.");
+    assert.notEqual(snapshot.tone, "angry");
+});
+
 test("extractEmotionSnapshot: affection keyword -> affection/medium", () => {
     const snapshot = extractEmotionSnapshot("I love you");
     assert.deepEqual(snapshot, {tone: "affection", intensity: "medium"});
