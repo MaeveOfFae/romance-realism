@@ -7,19 +7,69 @@ export type ConfigSchema = {
     enabled?: boolean;
     strictness?: number; // 1..3
     memory_depth?: number; // 5..30
-    [key: string]: any;
+    ui_enabled?: boolean;
+    ui_max_notes?: number; // 1..50
+    ui_show_status?: boolean;
+    ui_show_timestamps?: boolean;
+    max_ui_notes_per_20?: number; // -1 disables override, otherwise 0..20
+
+    note_scene_summary?: boolean;
+    note_emotion_delta?: boolean;
+    note_phase?: boolean;
+    note_proximity?: boolean;
+    note_consent?: boolean;
+    note_subtext?: boolean;
+    note_silence?: boolean;
+    note_drift?: boolean;
+    note_scar_recall?: boolean;
+
+    [key: string]: unknown;
 };
 
-export type NormalizedConfig = Omit<ConfigSchema, 'enabled' | 'strictness' | 'memory_depth'> & {
+export type NormalizedConfig = Omit<ConfigSchema, 'enabled' | 'strictness' | 'memory_depth'
+    | 'ui_enabled' | 'ui_max_notes' | 'ui_show_status' | 'ui_show_timestamps' | 'max_ui_notes_per_20'
+    | 'note_scene_summary' | 'note_emotion_delta' | 'note_phase' | 'note_proximity' | 'note_consent'
+    | 'note_subtext' | 'note_silence' | 'note_drift' | 'note_scar_recall'> & {
     enabled: boolean;
     strictness: number;
     memory_depth: number;
+
+    ui_enabled: boolean;
+    ui_max_notes: number;
+    ui_show_status: boolean;
+    ui_show_timestamps: boolean;
+    max_ui_notes_per_20: number | null;
+
+    note_scene_summary: boolean;
+    note_emotion_delta: boolean;
+    note_phase: boolean;
+    note_proximity: boolean;
+    note_consent: boolean;
+    note_subtext: boolean;
+    note_silence: boolean;
+    note_drift: boolean;
+    note_scar_recall: boolean;
 };
 
 export const DEFAULT_CONFIG: NormalizedConfig = {
     enabled: true,
     strictness: 2,
     memory_depth: 15,
+    ui_enabled: true,
+    ui_max_notes: 10,
+    ui_show_status: true,
+    ui_show_timestamps: true,
+    max_ui_notes_per_20: null,
+
+    note_scene_summary: true,
+    note_emotion_delta: true,
+    note_phase: true,
+    note_proximity: true,
+    note_consent: true,
+    note_subtext: true,
+    note_silence: true,
+    note_drift: true,
+    note_scar_recall: true,
 } as const;
 
 function clamp(n: number, min: number, max: number): number {
@@ -42,13 +92,58 @@ export function normalizeConfig(cfg?: ConfigSchema | null): NormalizedConfig {
         ? clamp(Math.floor(src.memory_depth), 5, 30)
         : DEFAULT_CONFIG.memory_depth;
 
+    const ui_enabled = typeof src.ui_enabled === 'boolean' ? src.ui_enabled : DEFAULT_CONFIG.ui_enabled;
+    const ui_max_notes = (typeof src.ui_max_notes === 'number')
+        ? clamp(Math.floor(src.ui_max_notes), 1, 50)
+        : DEFAULT_CONFIG.ui_max_notes;
+    const ui_show_status = typeof src.ui_show_status === 'boolean' ? src.ui_show_status : DEFAULT_CONFIG.ui_show_status;
+    const ui_show_timestamps = typeof src.ui_show_timestamps === 'boolean' ? src.ui_show_timestamps : DEFAULT_CONFIG.ui_show_timestamps;
+    const maxOverrideRaw = (typeof src.max_ui_notes_per_20 === 'number' && Number.isFinite(src.max_ui_notes_per_20))
+        ? Math.floor(src.max_ui_notes_per_20)
+        : null;
+    const max_ui_notes_per_20 = maxOverrideRaw == null
+        ? DEFAULT_CONFIG.max_ui_notes_per_20
+        : (maxOverrideRaw < 0 ? null : clamp(maxOverrideRaw, 0, 20));
+
+    const note_scene_summary = typeof src.note_scene_summary === 'boolean' ? src.note_scene_summary : DEFAULT_CONFIG.note_scene_summary;
+    const note_emotion_delta = typeof src.note_emotion_delta === 'boolean' ? src.note_emotion_delta : DEFAULT_CONFIG.note_emotion_delta;
+    const note_phase = typeof src.note_phase === 'boolean' ? src.note_phase : DEFAULT_CONFIG.note_phase;
+    const note_proximity = typeof src.note_proximity === 'boolean' ? src.note_proximity : DEFAULT_CONFIG.note_proximity;
+    const note_consent = typeof src.note_consent === 'boolean' ? src.note_consent : DEFAULT_CONFIG.note_consent;
+    const note_subtext = typeof src.note_subtext === 'boolean' ? src.note_subtext : DEFAULT_CONFIG.note_subtext;
+    const note_silence = typeof src.note_silence === 'boolean' ? src.note_silence : DEFAULT_CONFIG.note_silence;
+    const note_drift = typeof src.note_drift === 'boolean' ? src.note_drift : DEFAULT_CONFIG.note_drift;
+    const note_scar_recall = typeof src.note_scar_recall === 'boolean' ? src.note_scar_recall : DEFAULT_CONFIG.note_scar_recall;
+
     return {
         enabled,
         strictness,
         memory_depth,
+        ui_enabled,
+        ui_max_notes,
+        ui_show_status,
+        ui_show_timestamps,
+        max_ui_notes_per_20,
+
+        note_scene_summary,
+        note_emotion_delta,
+        note_phase,
+        note_proximity,
+        note_consent,
+        note_subtext,
+        note_silence,
+        note_drift,
+        note_scar_recall,
         // preserve unknown keys but do not trust their types
-        ...Object.keys(src).reduce((acc: any, k) => {
-            if (!['enabled', 'strictness', 'memory_depth'].includes(k)) acc[k] = (src as any)[k];
+        ...Object.keys(src).reduce((acc: Record<string, unknown>, k) => {
+            if (![
+                'enabled', 'strictness', 'memory_depth',
+                'ui_enabled', 'ui_max_notes', 'ui_show_status', 'ui_show_timestamps', 'max_ui_notes_per_20',
+                'note_scene_summary', 'note_emotion_delta', 'note_phase', 'note_proximity', 'note_consent',
+                'note_subtext', 'note_silence', 'note_drift', 'note_scar_recall',
+            ].includes(k)) {
+                acc[k] = (src as any)[k];
+            }
             return acc;
         }, {}),
     };
@@ -63,6 +158,18 @@ export function validateConfig(cfg?: ConfigSchema | null): string[] {
     if (cfg.enabled != null && typeof cfg.enabled !== 'boolean') errors.push('`enabled` must be a boolean.');
     if (cfg.strictness != null && (typeof cfg.strictness !== 'number' || !Number.isFinite(cfg.strictness))) errors.push('`strictness` must be a number.');
     if (cfg.memory_depth != null && (typeof cfg.memory_depth !== 'number' || !Number.isFinite(cfg.memory_depth))) errors.push('`memory_depth` must be a number.');
+    if (cfg.ui_enabled != null && typeof cfg.ui_enabled !== 'boolean') errors.push('`ui_enabled` must be a boolean.');
+    if (cfg.ui_max_notes != null && (typeof cfg.ui_max_notes !== 'number' || !Number.isFinite(cfg.ui_max_notes))) errors.push('`ui_max_notes` must be a number.');
+    if (cfg.ui_show_status != null && typeof cfg.ui_show_status !== 'boolean') errors.push('`ui_show_status` must be a boolean.');
+    if (cfg.ui_show_timestamps != null && typeof cfg.ui_show_timestamps !== 'boolean') errors.push('`ui_show_timestamps` must be a boolean.');
+    if (cfg.max_ui_notes_per_20 != null && (typeof cfg.max_ui_notes_per_20 !== 'number' || !Number.isFinite(cfg.max_ui_notes_per_20))) errors.push('`max_ui_notes_per_20` must be a number.');
+
+    for (const k of [
+        'note_scene_summary', 'note_emotion_delta', 'note_phase', 'note_proximity', 'note_consent',
+        'note_subtext', 'note_silence', 'note_drift', 'note_scar_recall',
+    ] as const) {
+        if ((cfg as any)[k] != null && typeof (cfg as any)[k] !== 'boolean') errors.push(`\`${k}\` must be a boolean.`);
+    }
     return errors;
 }
 

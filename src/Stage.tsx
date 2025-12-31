@@ -1,4 +1,4 @@
-import React, {useEffect, useMemo, useState, type ReactElement} from "react";
+import React, {useEffect, useMemo, useRef, useState, type ReactElement} from "react";
 import {createPortal} from "react-dom";
 import {StageBase, StageResponse, InitialData, Message} from "@chub-ai/stages-ts";
 import {LoadResponse} from "@chub-ai/stages-ts/dist/types/load";
@@ -172,6 +172,12 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
             // Restore message-level persisted state on swipe/jump
             this.myInternalState = {...this.myInternalState, ...state};
             if (!Array.isArray(this.myInternalState.overlayNotes)) this.myInternalState.overlayNotes = [];
+            const effectiveConfig = normalizeConfig((this as any).config);
+            (this as any)._effectiveConfig = effectiveConfig;
+            const maxNotes = typeof effectiveConfig.ui_max_notes === 'number' ? effectiveConfig.ui_max_notes : this.defaultConfig.ui_max_notes;
+            if (Array.isArray(this.myInternalState.overlayNotes)) {
+                this.myInternalState.overlayNotes = this.myInternalState.overlayNotes.slice(-maxNotes);
+            }
             // enforce caps (memory depth)
             const depth = ((this as any)._effectiveConfig?.memory_depth) || this.defaultConfig.memory_depth;
             if (Array.isArray(this.myInternalState.memoryScars)) {
@@ -188,7 +194,8 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
             /***
              This is called after someone presses 'send', but before anything is sent to the LLM.
              ***/
-            const effectiveConfig = (this as any)._effectiveConfig || this.defaultConfig;
+            const effectiveConfig = normalizeConfig((this as any).config);
+            (this as any)._effectiveConfig = effectiveConfig;
             const strictnessLevel = typeof effectiveConfig.strictness === 'number'
                 ? Math.floor(effectiveConfig.strictness)
                 : 2;
@@ -207,14 +214,15 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
             const currentChatState: ChatStateType | null = (this as any)._chatState || null;
             // Notes should only render inside the stage UI (never injected into chat messages).
             this.myInternalState.lastBeforePromptAt = Date.now();
-            if (strictnessLevel >= 2 && currentChatState && currentChatState.scene) {
+            if (effectiveConfig.ui_enabled && effectiveConfig.note_scene_summary && strictnessLevel >= 2 && currentChatState && currentChatState.scene) {
                 const summary = summarizeScene(currentChatState.scene);
                 if (summary) {
                     const note = `Scene summary: ${summary}`;
                     if ((this.myInternalState as any).lastSceneSummary !== note) {
+                        const maxNotes = typeof effectiveConfig.ui_max_notes === 'number' ? effectiveConfig.ui_max_notes : this.defaultConfig.ui_max_notes;
                         this.myInternalState.overlayNotes = (this.myInternalState.overlayNotes || [])
                             .concat([{text: note, at: Date.now()}])
-                            .slice(-10);
+                            .slice(-maxNotes);
                         (this.myInternalState as any).lastSceneSummary = note;
                     }
                 }
@@ -251,7 +259,8 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
              This is called immediately after a response from the LLM.
              ***/
             const content = typeof (botMessage as any)?.content === 'string' ? (botMessage as any).content : '';
-            const effectiveConfig = (this as any)._effectiveConfig || this.defaultConfig;
+            const effectiveConfig = normalizeConfig((this as any).config);
+            (this as any)._effectiveConfig = effectiveConfig;
             const strictnessLevel = typeof effectiveConfig.strictness === 'number'
                 ? Math.floor(effectiveConfig.strictness)
                 : 2;
@@ -274,8 +283,10 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
             ? (this.myInternalState as any).systemNoteHistory
             : [];
         const recentSystemNotes = systemNoteHistory.filter((idx) => idx > turnIndex - 20);
-        const allowedUiNotesPer20 = ({1: 0, 2: 2, 3: 6} as Record<number, number>)[strictnessLevel] ?? 0;
-        const canEmitUiNote = recentSystemNotes.length < allowedUiNotesPer20;
+        const allowedUiNotesPer20 = typeof effectiveConfig.max_ui_notes_per_20 === 'number'
+            ? effectiveConfig.max_ui_notes_per_20
+            : (({1: 0, 2: 2, 3: 6} as Record<number, number>)[strictnessLevel] ?? 0);
+        const canEmitUiNote = Boolean(effectiveConfig.ui_enabled) && recentSystemNotes.length < allowedUiNotesPer20;
         let criticalSystemNote = false;
 
         // Run lightweight analysis hooks (placeholders) that will be expanded later.
@@ -357,7 +368,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         // Emotional delta evaluation: detect whiplash and optionally attach a user-visible system note.
         let uiNote: string | null = null;
         const delta = evaluateEmotionalDelta(snapshot, priorEmotions);
-        if (delta.detected && effectiveConfig.enabled && strictnessLevel >= 2 && canEmitUiNote) {
+        if (effectiveConfig.note_emotion_delta && delta.detected && effectiveConfig.enabled && strictnessLevel >= 2 && canEmitUiNote) {
             // annotation frequency control: strictness 1..3 -> allowed annotations per window
             const allowedByStrictness = ({1: 1, 2: 2, 3: 3} as Record<number, number>)[strictnessLevel] || 2;
             this.myInternalState.lastAnnotations = this.myInternalState.lastAnnotations || [];
@@ -375,16 +386,16 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         this.myInternalState.lastEmotions = priorEmotions.concat(snapshot).slice(-5);
 
         // Merge escalation warning into systemMessage (do not overwrite existing note if present)
-        if (escalationWarning && (canEmitUiNote || criticalSystemNote || uiNote != null)) {
+        if (effectiveConfig.note_phase && escalationWarning && (canEmitUiNote || criticalSystemNote || uiNote != null)) {
             uiNote = uiNote ? `${uiNote} — ${escalationWarning}` : escalationWarning;
         }
 
-        if (proximityWarning && (canEmitUiNote || criticalSystemNote || uiNote != null)) {
+        if (effectiveConfig.note_proximity && proximityWarning && (canEmitUiNote || criticalSystemNote || uiNote != null)) {
             uiNote = uiNote ? `${uiNote} — ${proximityWarning}` : proximityWarning;
         }
 
         const consentIssues = detectConsentIssues(content);
-        if (consentIssues.length > 0) {
+        if (effectiveConfig.note_consent && consentIssues.length > 0) {
             criticalSystemNote = true;
             this.myInternalState.consentAlerts = (this.myInternalState.consentAlerts || []).concat([Date.now()]).slice(-50);
             const consentNote = `Consent/agency alert: ${consentIssues.join('; ')}`;
@@ -392,7 +403,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         }
 
         // Subtext highlights (hesitation, avoidance, guarded interest, fear of rejection)
-        if (strictnessLevel >= 2 && (canEmitUiNote || criticalSystemNote || uiNote != null)) {
+        if (effectiveConfig.note_subtext && strictnessLevel >= 2 && (canEmitUiNote || criticalSystemNote || uiNote != null)) {
             const subtextNotes = detectSubtext(content);
             if (subtextNotes.length > 0) {
                 const note = `Subtext: ${subtextNotes.join('; ')}`;
@@ -401,7 +412,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         }
 
         // Silence & pause interpreter
-        if (strictnessLevel >= 3 && (canEmitUiNote || criticalSystemNote || uiNote != null)) {
+        if (effectiveConfig.note_silence && strictnessLevel >= 3 && (canEmitUiNote || criticalSystemNote || uiNote != null)) {
             const silenceNote = detectSilenceOrPause(content);
             if (silenceNote) {
                 this.myInternalState.silenceHistory = (this.myInternalState.silenceHistory || []).concat([Date.now()]).slice(-50);
@@ -410,7 +421,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         }
 
         // Relationship drift detector
-        if (strictnessLevel >= 3 && (canEmitUiNote || criticalSystemNote || uiNote != null)) {
+        if (effectiveConfig.note_drift && strictnessLevel >= 3 && (canEmitUiNote || criticalSystemNote || uiNote != null)) {
             const driftNote = detectDrift({
                 recentEmotions: priorEmotions,
                 phaseHistory: (this.myInternalState.phaseHistory || []) as PhaseHistoryEntry[],
@@ -425,7 +436,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         }
 
         // Scar recall (avoid spamming: only recall newest scar once)
-        if (strictnessLevel >= 3 && (canEmitUiNote || criticalSystemNote || uiNote != null)) {
+        if (effectiveConfig.note_scar_recall && strictnessLevel >= 3 && (canEmitUiNote || criticalSystemNote || uiNote != null)) {
             const recall = recallMemoryScar(this.myInternalState.memoryScars || [], this.myInternalState.lastScarRecallIdx);
             if (recall.note) {
                 this.myInternalState.lastScarRecallIdx = recall.nextIdx;
@@ -433,11 +444,12 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
             }
         }
 
-        if (uiNote != null) {
+        if (effectiveConfig.ui_enabled && uiNote != null) {
+            const maxNotes = typeof effectiveConfig.ui_max_notes === 'number' ? effectiveConfig.ui_max_notes : this.defaultConfig.ui_max_notes;
             // keep a small buffer of recent notes for the in-iframe dropdown
             this.myInternalState.overlayNotes = (this.myInternalState.overlayNotes || [])
                 .concat([{text: uiNote, at: Date.now()}])
-                .slice(-10);
+                .slice(-maxNotes);
             (this.myInternalState as any).systemNoteHistory = recentSystemNotes.concat([turnIndex]).slice(-100);
         }
 
@@ -491,20 +503,33 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
 function NoticeOverlay({stageRef}: {stageRef: any}) {
     const [open, setOpen] = useState(false);
     const [tick, setTick] = useState(0);
+    const feedRef = useRef<HTMLDivElement | null>(null);
 
     useEffect(() => {
         const id = window.setInterval(() => setTick((t) => t + 1), 1000);
         return () => window.clearInterval(id);
     }, []);
 
+    const cfg = (stageRef as any)?._effectiveConfig || (stageRef as any)?.defaultConfig || {};
+    const uiEnabled = !(cfg && cfg.ui_enabled === false);
+
     const notes = (stageRef?.myInternalState?.overlayNotes as Array<{text: string; at: number}> | undefined) || [];
     const turnIndex = stageRef?.myInternalState?.turnIndex as number | undefined;
     const lastAfterResponseAt = stageRef?.myInternalState?.lastAfterResponseAt as number | undefined;
-    const latest = useMemo(() => [...notes].slice(-5).reverse(), [notes, tick]);
+    const maxNotes = typeof cfg.ui_max_notes === 'number' ? Math.max(1, Math.min(50, Math.floor(cfg.ui_max_notes))) : 10;
+    const latest = useMemo(() => [...notes].slice(-maxNotes), [notes, tick, maxNotes]);
     const hasNotes = latest.length > 0;
+
+    useEffect(() => {
+        if (!open) return;
+        const el = feedRef.current;
+        if (!el) return;
+        el.scrollTop = el.scrollHeight;
+    }, [open, notes.length]);
 
     const body = typeof document !== 'undefined' ? document.body : null;
     if (!body) return <></>;
+    if (!uiEnabled) return <></>;
 
     const overlay = (
         <div style={{
@@ -536,6 +561,7 @@ function NoticeOverlay({stageRef}: {stageRef: any}) {
             </button>
             {open && (
                 <div
+                    ref={feedRef}
                     style={{
                         marginTop: '6px',
                         width: '260px',
@@ -551,9 +577,11 @@ function NoticeOverlay({stageRef}: {stageRef: any}) {
                         pointerEvents: 'auto',
                     }}
                 >
-                    <div style={{fontSize: '11px', fontWeight: 600, color: '#555', marginBottom: '8px'}}>
-                        {`Status • ${typeof turnIndex === 'number' ? `turn ${turnIndex}` : 'no turns yet'}${typeof lastAfterResponseAt === 'number' ? ` • last response ${new Date(lastAfterResponseAt).toLocaleTimeString()}` : ''}`}
-                    </div>
+                    {cfg.ui_show_status !== false && (
+                        <div style={{fontSize: '11px', fontWeight: 600, color: '#555', marginBottom: '8px'}}>
+                            {`Status • ${typeof turnIndex === 'number' ? `turn ${turnIndex}` : 'no turns yet'}${typeof lastAfterResponseAt === 'number' ? ` • last response ${new Date(lastAfterResponseAt).toLocaleTimeString()}` : ''}`}
+                        </div>
+                    )}
                     {!hasNotes && (
                         <div style={{fontSize: '12px', color: '#666'}}>
                             No notes yet. Notes will appear when the stage emits guidance.
@@ -561,9 +589,11 @@ function NoticeOverlay({stageRef}: {stageRef: any}) {
                     )}
                     {latest.map((n, idx) => (
                         <div key={`${n.at}-${idx}`} style={{marginBottom: idx === latest.length - 1 ? 0 : '10px'}}>
-                            <div style={{fontWeight: 600, fontSize: '11px', color: '#555'}}>
-                                Note • {new Date(n.at).toLocaleTimeString()}
-                            </div>
+                            {cfg.ui_show_timestamps !== false && (
+                                <div style={{fontWeight: 600, fontSize: '11px', color: '#555'}}>
+                                    Note • {new Date(n.at).toLocaleTimeString()}
+                                </div>
+                            )}
                             <div style={{marginTop: '2px', whiteSpace: 'pre-wrap'}}>{n.text}</div>
                         </div>
                     ))}
