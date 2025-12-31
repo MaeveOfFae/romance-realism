@@ -287,14 +287,12 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
             ? effectiveConfig.max_ui_notes_per_20
             : (({1: 0, 2: 2, 3: 6} as Record<number, number>)[strictnessLevel] ?? 0);
         const canEmitUiNote = Boolean(effectiveConfig.ui_enabled) && recentSystemNotes.length < allowedUiNotesPer20;
-        let criticalSystemNote = false;
 
         type NoteCandidate = {id: string; text: string; score: number; critical?: boolean};
         const candidates: NoteCandidate[] = [];
         const addCandidate = (c: NoteCandidate) => {
             if (!c || !c.text) return;
             candidates.push(c);
-            if (c.critical) criticalSystemNote = true;
         };
 
         // Run lightweight analysis hooks (placeholders) that will be expanded later.
