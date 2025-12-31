@@ -131,7 +131,7 @@ Recent changes (high level):
 - Added a read-only developer overlay (toggle in dev runner settings).
 - Added unit tests and a `yarn test` script (Node `node:test`, compiled to `.test-dist/`).
 
-All heuristics are intentionally lightweight regex/heuristic-based and organized for easy unit testing and iterative refinement.
+All heuristics are intentionally lightweight regex/heuristic-based, emit weighted signals, and are organized for easy unit testing and iterative refinement.
 
 ## Testing & QA
 
@@ -176,10 +176,3 @@ Note: `package.json` currently specifies Node `21.7.1` in `engines`. Use an appr
 
 - `public/chub_meta.yaml` has been updated with metadata: `project_name: "Romance Realism Pack"`, `tagline`, `visibility: PUBLIC`, `position: NONE`, and tags (`romance`, `realism`, `slow-burn`, `roleplay`).
 - Before publishing: add unit tests, confirm `yarn build`, update version and changelog, and add release notes.
-
-## Next recommended tasks
-
-1. Add CI (type-check, build, tests).
-2. Add functional tests around Stage lifecycle and state persistence.
-3. Tune heuristics and thresholds; expose more config knobs if desired.
-4. Document how to add new detectors + tests.

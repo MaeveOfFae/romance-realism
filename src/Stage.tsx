@@ -8,12 +8,12 @@ import {
     detectDrift,
     detectEscalationSignals,
     detectMemoryEvents,
-    detectSilenceOrPause,
-    detectSubtext,
     evaluateEmotionalDelta,
     evaluateProximityTransition,
     extractEmotionSnapshot,
     recallMemoryScar,
+    scoreSilenceOrPause,
+    scoreSubtext,
     summarizeScene,
     updateSceneFromMessage,
     type EmotionSnapshot,
@@ -289,6 +289,14 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         const canEmitUiNote = Boolean(effectiveConfig.ui_enabled) && recentSystemNotes.length < allowedUiNotesPer20;
         let criticalSystemNote = false;
 
+        type NoteCandidate = {id: string; text: string; score: number; critical?: boolean};
+        const candidates: NoteCandidate[] = [];
+        const addCandidate = (c: NoteCandidate) => {
+            if (!c || !c.text) return;
+            candidates.push(c);
+            if (c.critical) criticalSystemNote = true;
+        };
+
         // Run lightweight analysis hooks (placeholders) that will be expanded later.
         const snapshot: EmotionSnapshot = extractEmotionSnapshot(content);
         const priorEmotions = (this.myInternalState.lastEmotions || []);
@@ -329,24 +337,24 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         const signals = detectEscalationSignals(content, snapshot);
         this.myInternalState.signalHistory = (this.myInternalState.signalHistory || []).concat(signals).slice(-20);
 
-        // aggregate recent signals across last N turns (simple count)
+        // Aggregate recent signals across last N turns (weighted)
         const recentSignals = (this.myInternalState.signalHistory || []).slice(-5);
         const phaseOrder = ["Neutral", "Familiar", "Charged", "Intimate"] as const;
         const currentPhase = (this.myInternalState.phase as any) || "Neutral";
         const currentIndex = Math.max(0, phaseOrder.indexOf(currentPhase as any));
 
-        // Count suggested phases from recent signals
-        const suggestedCounts: {[k: string]: number} = {};
+        const suggestedWeights: {[k: string]: number} = {};
         for (const s of recentSignals) {
-            suggestedCounts[s.suggestedPhase] = (suggestedCounts[s.suggestedPhase] || 0) + 1;
+            const w = typeof (s as any).weight === 'number' && Number.isFinite((s as any).weight) ? (s as any).weight : 1;
+            suggestedWeights[s.suggestedPhase] = (suggestedWeights[s.suggestedPhase] || 0) + w;
         }
 
-        // Find the highest suggested phase that has >= threshold signals
-        const threshold = 2; // require multiple signals across turns
+        // Find the highest suggested phase that has enough weight. Strictness 3 is more permissive.
+        const phaseThresholdByStrictness = ({1: 6, 2: 4, 3: 3} as Record<number, number>)[strictnessLevel] ?? 4;
         let targetPhase: typeof phaseOrder[number] | null = null;
         for (let i = phaseOrder.length - 1; i >= 0; i--) {
             const p = phaseOrder[i];
-            if ((suggestedCounts[p] || 0) >= threshold) {
+            if ((suggestedWeights[p] || 0) >= phaseThresholdByStrictness) {
                 targetPhase = p;
                 break;
             }
@@ -355,27 +363,37 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         let escalationWarning: string | null = null;
         if (targetPhase) {
             const targetIdx = phaseOrder.indexOf(targetPhase);
-            if (targetIdx > currentIndex + 1) {
-                // skipped at least one phase -> annotate warning
-                escalationWarning = `System note: relationship signals suggest ${targetPhase} but current phase is ${currentPhase}. Consider intermediate steps.`;
-            } else if (targetIdx === currentIndex + 1) {
-                // advance one phase
-                this.myInternalState.phase = targetPhase;
-                this.myInternalState.phaseHistory = (this.myInternalState.phaseHistory || []).concat([{phase: targetPhase, at: Date.now()}]).slice(-50);
+            if (targetIdx > currentIndex) {
+                // Always advance at most one phase per message to avoid jerky jumps, but warn on big gaps.
+                const nextIdx = Math.min(currentIndex + 1, targetIdx);
+                const nextPhase = phaseOrder[nextIdx];
+                if (nextPhase !== currentPhase) {
+                    this.myInternalState.phase = nextPhase;
+                    this.myInternalState.phaseHistory = (this.myInternalState.phaseHistory || []).concat([{phase: nextPhase, at: Date.now()}]).slice(-50);
+                }
+                if (targetIdx > currentIndex + 1) {
+                    escalationWarning = `relationship signals suggest ${targetPhase} but phase is ${currentPhase}. Consider intermediate beats.`;
+                }
             }
         }
 
         // Emotional delta evaluation: detect whiplash and optionally attach a user-visible system note.
         let uiNote: string | null = null;
-        const delta = evaluateEmotionalDelta(snapshot, priorEmotions);
-        if (effectiveConfig.note_emotion_delta && delta.detected && effectiveConfig.enabled && strictnessLevel >= 2 && canEmitUiNote) {
+        const delta = evaluateEmotionalDelta(snapshot, priorEmotions, content);
+        const deltaScore = typeof (delta as any).score === 'number' ? (delta as any).score : 0;
+        const deltaThresholdByStrictness = ({1: 5, 2: 3, 3: 2} as Record<number, number>)[strictnessLevel] ?? 3;
+        if (effectiveConfig.note_emotion_delta && effectiveConfig.enabled && strictnessLevel >= 2 && deltaScore >= deltaThresholdByStrictness && (canEmitUiNote || criticalSystemNote)) {
             // annotation frequency control: strictness 1..3 -> allowed annotations per window
             const allowedByStrictness = ({1: 1, 2: 2, 3: 3} as Record<number, number>)[strictnessLevel] || 2;
             this.myInternalState.lastAnnotations = this.myInternalState.lastAnnotations || [];
             // count recent annotations in last 20 messages (approx)
             const recentCount = this.myInternalState.lastAnnotations.filter((idx: number) => idx > turnIndex - 20).length;
             if (recentCount < allowedByStrictness) {
-                uiNote = `System note: abrupt emotional shift detected (${delta.summary}). Consider adding a transitional cue.`;
+                addCandidate({
+                    id: 'emotion_delta',
+                    text: `abrupt emotional shift detected (${delta.summary}). Consider adding a transitional cue.`,
+                    score: deltaScore,
+                });
                 this.myInternalState.lastAnnotations.push(turnIndex);
                 // cap size of annotations history
                 this.myInternalState.lastAnnotations = this.myInternalState.lastAnnotations.slice(-20);
@@ -386,42 +404,54 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         this.myInternalState.lastEmotions = priorEmotions.concat(snapshot).slice(-5);
 
         // Merge escalation warning into systemMessage (do not overwrite existing note if present)
-        if (effectiveConfig.note_phase && escalationWarning && (canEmitUiNote || criticalSystemNote || uiNote != null)) {
-            uiNote = uiNote ? `${uiNote} — ${escalationWarning}` : escalationWarning;
+        if (effectiveConfig.note_phase && escalationWarning) {
+            addCandidate({id: 'phase_skip', text: escalationWarning, score: 3});
         }
 
-        if (effectiveConfig.note_proximity && proximityWarning && (canEmitUiNote || criticalSystemNote || uiNote != null)) {
-            uiNote = uiNote ? `${uiNote} — ${proximityWarning}` : proximityWarning;
+        if (effectiveConfig.note_proximity && proximityWarning) {
+            addCandidate({id: 'proximity_skip', text: proximityWarning.replace(/^System note:\s*/i, ''), score: 3});
         }
 
         const consentIssues = detectConsentIssues(content);
         if (effectiveConfig.note_consent && consentIssues.length > 0) {
-            criticalSystemNote = true;
             this.myInternalState.consentAlerts = (this.myInternalState.consentAlerts || []).concat([Date.now()]).slice(-50);
-            const consentNote = `Consent/agency alert: ${consentIssues.join('; ')}`;
-            uiNote = uiNote ? `${uiNote} — ${consentNote}` : consentNote;
+            const weights: Record<string, number> = {
+                'assigns emotions to the user': 2,
+                'forces decisions/consent onto the user': 6,
+                'coercive physical action': 7,
+                'describes internal monologue for the user': 2,
+                'describes involuntary bodily response for the user': 2,
+            };
+            const consentScore = consentIssues.reduce((acc, issue) => acc + (weights[issue] ?? 2), 0);
+            const isCritical = consentIssues.some((i) => i === 'coercive physical action' || i === 'forces decisions/consent onto the user');
+            addCandidate({
+                id: 'consent',
+                text: `Consent/agency alert: ${consentIssues.join('; ')}`,
+                score: consentScore,
+                critical: isCritical,
+            });
         }
 
         // Subtext highlights (hesitation, avoidance, guarded interest, fear of rejection)
-        if (effectiveConfig.note_subtext && strictnessLevel >= 2 && (canEmitUiNote || criticalSystemNote || uiNote != null)) {
-            const subtextNotes = detectSubtext(content);
-            if (subtextNotes.length > 0) {
-                const note = `Subtext: ${subtextNotes.join('; ')}`;
-                uiNote = uiNote ? `${uiNote} — ${note}` : note;
+        if (effectiveConfig.note_subtext && strictnessLevel >= 2) {
+            const subtext = scoreSubtext(content);
+            const subtextThresholdByStrictness = ({1: 99, 2: 2, 3: 1} as Record<number, number>)[strictnessLevel] ?? 2;
+            if (subtext.notes.length > 0 && subtext.score >= subtextThresholdByStrictness) {
+                addCandidate({id: 'subtext', text: `Subtext: ${subtext.notes.join('; ')}`, score: subtext.score});
             }
         }
 
         // Silence & pause interpreter
-        if (effectiveConfig.note_silence && strictnessLevel >= 3 && (canEmitUiNote || criticalSystemNote || uiNote != null)) {
-            const silenceNote = detectSilenceOrPause(content);
-            if (silenceNote) {
+        if (effectiveConfig.note_silence && strictnessLevel >= 3) {
+            const silence = scoreSilenceOrPause(content);
+            if (silence.note) {
                 this.myInternalState.silenceHistory = (this.myInternalState.silenceHistory || []).concat([Date.now()]).slice(-50);
-                uiNote = uiNote ? `${uiNote} — ${silenceNote}` : silenceNote;
+                addCandidate({id: 'silence', text: silence.note, score: silence.score});
             }
         }
 
         // Relationship drift detector
-        if (effectiveConfig.note_drift && strictnessLevel >= 3 && (canEmitUiNote || criticalSystemNote || uiNote != null)) {
+        if (effectiveConfig.note_drift && strictnessLevel >= 3) {
             const driftNote = detectDrift({
                 recentEmotions: priorEmotions,
                 phaseHistory: (this.myInternalState.phaseHistory || []) as PhaseHistoryEntry[],
@@ -431,16 +461,29 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
             });
             if (driftNote) {
                 this.myInternalState.driftNotes = (this.myInternalState.driftNotes || []).concat([turnIndex]).slice(-50);
-                uiNote = uiNote ? `${uiNote} — ${driftNote}` : driftNote;
+                addCandidate({id: 'drift', text: driftNote, score: 2});
             }
         }
 
         // Scar recall (avoid spamming: only recall newest scar once)
-        if (effectiveConfig.note_scar_recall && strictnessLevel >= 3 && (canEmitUiNote || criticalSystemNote || uiNote != null)) {
+        if (effectiveConfig.note_scar_recall && strictnessLevel >= 3) {
             const recall = recallMemoryScar(this.myInternalState.memoryScars || [], this.myInternalState.lastScarRecallIdx);
             if (recall.note) {
                 this.myInternalState.lastScarRecallIdx = recall.nextIdx;
-                uiNote = uiNote ? `${uiNote} — ${recall.note}` : recall.note;
+                addCandidate({id: 'scar_recall', text: recall.note, score: 1});
+            }
+        }
+
+        if (effectiveConfig.ui_enabled) {
+            const maxParts = strictnessLevel >= 3 ? 4 : 2;
+            const selected = candidates
+                // Critical notes can bypass the UI throttle; others respect it.
+                .filter((c) => c.critical || canEmitUiNote)
+                .sort((a, b) => (Number(Boolean(b.critical)) * 100 + b.score) - (Number(Boolean(a.critical)) * 100 + a.score))
+                .slice(0, maxParts);
+            if (selected.length > 0) {
+                const parts = selected.map((c) => c.text.replace(/^System note:\s*/i, ''));
+                uiNote = `System note: ${parts.join(' — ')}`;
             }
         }
 

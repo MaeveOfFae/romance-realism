@@ -60,7 +60,10 @@ test("extractEmotionSnapshot: detects high intensity cues", () => {
 
 test("evaluateProximityTransition: detects skipped steps", () => {
     const res = evaluateProximityTransition("She takes your hand.", "Distant");
-    assert.deepEqual(res, {next: "Touching", skipped: true, changed: true});
+    assert.equal(res.next, "Touching");
+    assert.equal(res.skipped, true);
+    assert.equal(res.changed, true);
+    assert.equal(res.score >= 1, true);
 });
 
 test("detectConsentIssues: flags coercion patterns", () => {
@@ -69,9 +72,28 @@ test("detectConsentIssues: flags coercion patterns", () => {
     assert.equal(issues.includes("forces decisions/consent onto the user"), true);
 });
 
+test("detectConsentIssues: avoids interrogative 'do you feel' phrasing", () => {
+    const issues = detectConsentIssues("Do you feel okay?");
+    assert.equal(issues.includes("assigns emotions to the user"), false);
+});
+
 test("detectConsentIssues: avoids vague 'you realize' phrasing", () => {
     const issues = detectConsentIssues("You realize it's late.");
     assert.equal(issues.includes("describes internal monologue for the user"), false);
+});
+
+test("evaluateProximityTransition: avoids adjective 'touching moment' false positive", () => {
+    const res = evaluateProximityTransition("It was a touching moment.", "Distant");
+    assert.equal(res.next, "Distant");
+    assert.equal(res.changed, false);
+    assert.equal(res.skipped, false);
+});
+
+test("evaluateProximityTransition: does not mark skipped when intermediate evidence exists", () => {
+    const res = evaluateProximityTransition("He steps closer and takes your hand.", "Distant");
+    assert.equal(res.next, "Touching");
+    assert.equal(res.skipped, false);
+    assert.equal(res.evidence.includes("Nearby"), true);
 });
 
 test("detectMemoryEvents: can emit multiple unique events", () => {

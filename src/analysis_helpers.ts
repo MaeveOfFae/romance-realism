@@ -23,6 +23,23 @@ function scoreFromPatterns(text: string, patterns: RegExp[], weight: number = 1)
     return score;
 }
 
+type WeightedHit = {label: string; weight: number};
+
+function stripQuotedDialogue(text: string): string {
+    if (!text) return "";
+    // Remove double-quoted dialogue spans to reduce false positives in scene extraction.
+    // Keep this lightweight; do not attempt full NLP parsing.
+    return text.replace(/"[^"]*"/g, " ");
+}
+
+function pushWeighted(hits: WeightedHit[], label: string, weight: number) {
+    hits.push({label, weight});
+}
+
+function sumWeights(hits: WeightedHit[]): number {
+    return hits.reduce((acc, h) => acc + (Number.isFinite(h.weight) ? h.weight : 0), 0);
+}
+
 function extractIntensity(text: string): EmotionIntensity {
     const t = text || "";
     let score = 0;
@@ -117,9 +134,9 @@ export function extractEmotionSnapshot(text: string): EmotionSnapshot {
     return {tone, intensity: adjustedIntensity};
 }
 
-export function evaluateEmotionalDelta(current: EmotionSnapshot, recent: EmotionSnapshot[]) {
+export function evaluateEmotionalDelta(current: EmotionSnapshot, recent: EmotionSnapshot[], content?: string) {
     const window = recent.slice(-5);
-    if (!window || window.length === 0) return {detected: false, summary: ''};
+    if (!window || window.length === 0) return {detected: false, summary: '', score: 0, reasons: [] as WeightedHit[]};
 
     const intensityScore = (s: EmotionSnapshot) => ({low: 0, medium: 1, high: 2}[s.intensity] ?? 0);
     const avgPrevIntensity = Math.round(window.reduce((a, b) => a + intensityScore(b), 0) / window.length);
@@ -142,54 +159,69 @@ export function evaluateEmotionalDelta(current: EmotionSnapshot, recent: Emotion
     const curPolarity = polarity(current.tone);
     const polarityFlip = prevPolarity !== curPolarity && prevPolarity !== "neutral" && curPolarity !== "neutral";
 
-    const detected =
+    const reasons: WeightedHit[] = [];
+    if (steadyPrev) pushWeighted(reasons, "steady_previous_window", 1);
+    if (toneChanged) pushWeighted(reasons, "tone_changed", 1);
+    if (polarityFlip) pushWeighted(reasons, "polarity_flip", 2);
+    if (intensityJump >= 1) pushWeighted(reasons, "intensity_jump", Math.min(3, Math.max(1, intensityJump)) * 2);
+
+    // Suppress whiplash when explicit transition cues are present.
+    const transitionCues =
+        /\b(after a (?:long )?pause|takes a breath|breathes (?:in|out)|softens|voice (?:softens|quiets|drops)|steadying|gently|carefully|hesitates|swallows|manages a smile)\b/i;
+    const hasTransitionCue = typeof content === "string" && transitionCues.test(content);
+    if (hasTransitionCue) pushWeighted(reasons, "transition_cue_present", -2);
+
+    const score = sumWeights(reasons);
+    // Default detection threshold; callers can also use `score` to tune by strictness.
+    const detected = score >= 3 && (
         (intensityJump >= 2) ||
         (polarityFlip && steadyPrev && curIntensity >= 1) ||
-        (toneChanged && steadyPrev && Math.abs(intensityJump) >= 1);
+        (toneChanged && steadyPrev && Math.abs(intensityJump) >= 1)
+    );
     const summary = `from [${prevTones.join(', ')}] (${avgPrevIntensity}) to ${current.tone} (${curIntensity})`;
-    return {detected, summary};
+    return {detected, summary, score, reasons};
 }
 
 export function detectEscalationSignals(content: string, snapshot: EmotionSnapshot) {
-    const signals: Array<{type: string; suggestedPhase: RelationshipPhase; text: string}> = [];
+    const signals: Array<{type: string; suggestedPhase: RelationshipPhase; text: string; weight: number}> = [];
     if (!content || content.trim().length === 0) return signals;
     const t = content;
 
-    const pushUnique = (signal: {type: string; suggestedPhase: RelationshipPhase; text: string}) => {
+    const pushUnique = (signal: {type: string; suggestedPhase: RelationshipPhase; text: string; weight: number}) => {
         if (signals.some((s) => s.type === signal.type)) return;
         signals.push(signal);
     };
 
     if (/\b(I\s+(?:feel|felt|confess|admit|can'?t help)\b|\bconfess(?:ed)?\b|\bcome(?:s|ing)? clean\b|\bthe truth is\b)/i.test(t)) {
-        pushUnique({type: 'emotional_disclosure', suggestedPhase: 'Familiar', text: t.slice(0, 200)});
+        pushUnique({type: 'emotional_disclosure', suggestedPhase: 'Familiar', text: t.slice(0, 200), weight: 1});
     }
 
     if (/\b(I need you|don'?t leave|please stay|I can'?t live|depend on you|rely on you|I can'?t (?:do|be) (?:this|without you))\b/i.test(t)) {
-        pushUnique({type: 'dependency', suggestedPhase: 'Charged', text: t.slice(0, 200)});
+        pushUnique({type: 'dependency', suggestedPhase: 'Charged', text: t.slice(0, 200), weight: 2});
     }
 
     if (/\b(hugs?|embrace(?:s|d)?|cuddl(?:e|es|ed|ing)|wraps? (?:an?|their) arm|takes? (?:your|his|her|their) hand|interlaces fingers|holds hands|leans? in|moves? closer|closes the distance|press(?:es|ed)? against|rests? (?:a|his|her|their) hand (?:on|against) (?:your|his|her|their) (?:arm|shoulder|waist|back))\b/i.test(t)) {
-        pushUnique({type: 'physical_closeness', suggestedPhase: 'Charged', text: t.slice(0, 200)});
+        pushUnique({type: 'physical_closeness', suggestedPhase: 'Charged', text: t.slice(0, 200), weight: 1});
     }
 
     if (/\b(kiss(?:es|ed|ing)? on the lips|making love|have sex|sex\b|intercourse|nude|strip(?:s|ped|ping)?|undress(?:es|ed)?|moan(?:s|ed|ing)?|orgasm)\b/i.test(t)) {
-        pushUnique({type: 'physical_intimacy', suggestedPhase: 'Intimate', text: t.slice(0, 200)});
+        pushUnique({type: 'physical_intimacy', suggestedPhase: 'Intimate', text: t.slice(0, 200), weight: 3});
     }
 
     if (/\b(you'?re (?:beautiful|pretty|gorgeous|handsome)|can'?t stop looking at you|you look (?:good|amazing)|so cute|so hot|you smell (?:good|nice))\b/i.test(t)) {
-        pushUnique({type: 'attraction_language', suggestedPhase: 'Familiar', text: t.slice(0, 200)});
+        pushUnique({type: 'attraction_language', suggestedPhase: 'Familiar', text: t.slice(0, 200), weight: 1});
     }
 
     if (/\b(I love you|in love|falling for you|can'?t stop thinking about you)\b/i.test(t)) {
-        pushUnique({type: 'love_confession', suggestedPhase: 'Charged', text: t.slice(0, 200)});
+        pushUnique({type: 'love_confession', suggestedPhase: 'Charged', text: t.slice(0, 200), weight: 3});
     }
 
     if (/\b(date\b|girlfriend\b|boyfriend\b|partner\b|exclusive\b|relationship\b)\b/i.test(t)) {
-        pushUnique({type: 'commitment_language', suggestedPhase: 'Charged', text: t.slice(0, 200)});
+        pushUnique({type: 'commitment_language', suggestedPhase: 'Charged', text: t.slice(0, 200), weight: 2});
     }
 
     if (snapshot.tone === 'affection' && snapshot.intensity === 'high') {
-        pushUnique({type: 'affection_high', suggestedPhase: 'Charged', text: 'high-affection'});
+        pushUnique({type: 'affection_high', suggestedPhase: 'Charged', text: 'high-affection', weight: 1});
     }
 
     return signals;
@@ -236,31 +268,41 @@ export function detectMemoryEvents(content: string): string[] {
 }
 
 export function detectSubtext(content: string): string[] {
-    if (!content) return [];
+    return scoreSubtext(content).notes;
+}
+
+export function scoreSubtext(content: string): {notes: string[]; score: number; reasons: WeightedHit[]} {
+    if (!content) return {notes: [], score: 0, reasons: []};
     const notes = new Set<string>();
+    const reasons: WeightedHit[] = [];
     const t = content;
 
     if (/\b(um|uh|er)\b/i.test(t) || /\.\.\./.test(t) || /\b(hesitates|pauses)\b/i.test(t) || /\b(not sure|maybe|i guess)\b/i.test(t)) {
         notes.add('hesitation/uncertainty');
+        pushWeighted(reasons, 'hesitation/uncertainty', 1);
     }
 
     if (/\b(changes the subject|deflects|dodges the question|avoids eye contact|looks away|shrugs it off)\b/i.test(t)) {
         notes.add('avoidance');
+        pushWeighted(reasons, 'avoidance', 2);
     }
 
     if (/\b(careful not to|holding back|guarded|keeps distance emotionally|measured tone|doesn'?t say it outright)\b/i.test(t)) {
         notes.add('guarded interest');
+        pushWeighted(reasons, 'guarded interest', 1);
     }
 
     if (/\b(afraid to ask|fear of rejection|worried you'?ll say no|doesn'?t want to scare you off)\b/i.test(t)) {
         notes.add('fear of rejection');
+        pushWeighted(reasons, 'fear of rejection', 2);
     }
 
-    if (/\b(swallow(?:s|ed)?|fidgets?|chews? (?:their|his|her) lip|voice (?:drops|quiet|small))\b/i.test(t)) {
+    if (/\b(swallow(?:s|ed)?|fidgets?|chews? (?:their|his|her|their) lip|voice (?:drops|quiet|small))\b/i.test(t)) {
         notes.add('nervous tell');
+        pushWeighted(reasons, 'nervous tell', 1);
     }
 
-    return Array.from(notes);
+    return {notes: Array.from(notes), score: sumWeights(reasons), reasons};
 }
 
 export function recallMemoryScar(scars: MemoryScar[], lastScarRecallIdx: number | null | undefined) {
@@ -300,48 +342,76 @@ export function detectDrift(params: {
 }
 
 export function detectSilenceOrPause(content: string): string | null {
-    if (content == null) return null;
+    return scoreSilenceOrPause(content).note;
+}
+
+export function scoreSilenceOrPause(content: string): {note: string | null; score: number; reasons: WeightedHit[]} {
+    if (content == null) return {note: null, score: 0, reasons: []};
     const trimmed = content.trim();
-    if (trimmed.length === 0) return 'Silence detected: consider clarifying hesitation or disengagement.';
+    if (trimmed.length === 0) {
+        return {note: 'Silence detected: consider clarifying hesitation or disengagement.', score: 3, reasons: [{label: 'silence', weight: 3}]};
+    }
 
     const short = trimmed.length < 25;
     const nonCommittal = /(maybe|i guess|not sure|could be|i dunno|perhaps)/i.test(trimmed);
     const curt = /^(ok|okay|sure|fine|whatever|yeah)\.?$/i.test(trimmed);
 
     if (short && (nonCommittal || curt)) {
-        return 'Brief/non-committal reply: may signal hesitation or disengagement.';
+        const reasons: WeightedHit[] = [];
+        pushWeighted(reasons, 'brief_reply', 1);
+        if (nonCommittal) pushWeighted(reasons, 'non_committal', 1);
+        if (curt) pushWeighted(reasons, 'curt', 1);
+        return {note: 'Brief/non-committal reply: may signal hesitation or disengagement.', score: sumWeights(reasons), reasons};
     }
 
     if (/\.\.\.|\bpauses\b|\bhesitates\b/i.test(trimmed)) {
-        return 'Pause noted: consider leaning into hesitation or giving space.';
+        return {note: 'Pause noted: consider leaning into hesitation or giving space.', score: 2, reasons: [{label: 'pause', weight: 2}]};
     }
 
-    return null;
+    return {note: null, score: 0, reasons: []};
 }
 
-export function evaluateProximityTransition(content: string, current: Proximity | null | undefined): {next: Proximity; skipped: boolean; changed: boolean} {
+export function evaluateProximityTransition(
+    content: string,
+    current: Proximity | null | undefined,
+): {next: Proximity; skipped: boolean; changed: boolean; score: number; evidence: Proximity[]} {
     const order: Proximity[] = ["Distant", "Nearby", "Touching", "Intimate"];
     const cur = current || "Distant";
-    let next: Proximity = cur;
-    const t = content;
-    if (/\b(across the room|keeps (?:his|her|their) distance|stands back|far away|distant)\b/i.test(t)) next = "Distant";
-    if (/\b(steps closer|approaches?|closes the distance|sits beside|next to|nearby|close by|leans closer)\b/i.test(t)) next = "Nearby";
-    if (/\b(touch(?:es|ing)?|hand in hand|holds?|takes? (?:your|his|her|their) hand|interlaces fingers|brush(?:es|ed)?|rests? (?:a|his|her|their) hand|hand on|fingers?\b|caress(?:es|ed)?)\b/i.test(t)) next = "Touching";
-    if (/\b(embrace(?:s|d)? tightly|press(?:es|ed)? against|kiss(?:es|ed|ing)?|straddles|in (?:his|her|their) lap)\b/i.test(t)) next = "Intimate";
+    const t = content || "";
+
+    // Collect all proximity evidence present in the message.
+    const evidence: Proximity[] = [];
+    const addEvidence = (p: Proximity, re: RegExp) => {
+        if (re.test(t)) evidence.push(p);
+    };
+
+    addEvidence("Distant", /\b(across the room|keeps (?:his|her|their) distance|stands back|far away)\b/i);
+    addEvidence("Nearby", /\b(steps closer|approaches?|closes the distance|sits beside|next to|nearby|close by|leans closer)\b/i);
+    // Avoid adjective false positives like "a touching moment" by requiring an object/target for touch.
+    addEvidence("Touching", /\b(hand in hand|holds?|takes? (?:your|his|her|their) hand|interlaces fingers|brush(?:es|ed)? (?:your|his|her|their)?\s*(?:hand|fingers|arm)|rests? (?:a|his|her|their) hand (?:on|against)|hand on|caress(?:es|ed)?|touch(?:es|ed|ing)?\s+(?:you|him|her|them|your|his|her|their))\b/i);
+    addEvidence("Intimate", /\b(embrace(?:s|d)? tightly|press(?:es|ed)? against|kiss(?:es|ed|ing)?|straddles|in (?:his|her|their) lap)\b/i);
+
+    const uniqEvidence = Array.from(new Set(evidence));
+    const highest = (p: Proximity[]) => p.reduce((acc, curP) => (order.indexOf(curP) > order.indexOf(acc) ? curP : acc), "Distant" as Proximity);
+    const next = uniqEvidence.length > 0 ? highest(uniqEvidence) : cur;
 
     const curIndex = order.indexOf(cur);
     const nextIndex = order.indexOf(next);
-    const skipped = nextIndex > curIndex + 1;
+    const intermediate = order.slice(curIndex + 1, nextIndex);
+    const hasIntermediateEvidence = intermediate.some((p) => uniqEvidence.includes(p));
+    const skipped = nextIndex > curIndex + 1 && !hasIntermediateEvidence;
     const changed = next !== cur;
-    return {next, skipped, changed};
+    const score = skipped ? 3 : changed ? 1 : 0;
+    return {next, skipped, changed, score, evidence: uniqEvidence};
 }
 
 export function detectConsentIssues(content: string): string[] {
     if (!content) return [];
     const issues = new Set<string>();
     const t = content;
-
-    if (/\byou (?:feel|felt|are overcome|can'?t help but feel|can'?t resist)\b/i.test(t)) {
+    // Anchor "you feel/think..." assertions to sentence boundaries to avoid interrogatives like "Do you feel...?"
+    const boundary = /(^|[.!?]\s+|;\s+|:\s+)\s*/i;
+    if (new RegExp(`${boundary.source}you\\s+(?:feel|felt|are overcome|can'?t help but feel|can'?t resist)\\b`, "i").test(t)) {
         issues.add('assigns emotions to the user');
     }
 
@@ -353,7 +423,7 @@ export function detectConsentIssues(content: string): string[] {
         issues.add('coercive physical action');
     }
 
-    if (/\b(inside your mind|your thoughts say|your inner voice|you think to yourself|you think|you wonder|you remember)\b/i.test(t)) {
+    if (/\b(inside your mind|your thoughts say|your inner voice)\b/i.test(t) || new RegExp(`${boundary.source}you\\s+(?:think to yourself|think|wonder|remember)\\b`, "i").test(t)) {
         issues.add('describes internal monologue for the user');
     }
 
@@ -384,7 +454,8 @@ export function summarizeScene(scene: SceneState | null | undefined): string | n
 export function updateSceneFromMessage(prev: SceneState | null | undefined, content: string, snapshot: EmotionSnapshot): SceneState {
     const scene: SceneState = Object.assign({}, prev || {});
     const t = content;
-    const locMatch = t.match(/\b(?:at|in|inside|into|on|by)\s+(?:the|a|an)\s+([A-Za-z0-9'’\- ]{3,60})\b/i);
+    const narrative = stripQuotedDialogue(t);
+    const locMatch = narrative.match(/\b(?:at|in|inside|into|on|by)\s+(?:the|a|an)\s+([A-Za-z0-9'’\- ]{3,60})\b/i);
     if (locMatch) {
         const candidate = locMatch[1].trim();
         const normalized = candidate.toLowerCase().replace(/\s+/g, " ").trim();
@@ -394,6 +465,9 @@ export function updateSceneFromMessage(prev: SceneState | null | undefined, cont
             "middle",
             "moment",
             "meantime",
+            "world",
+            "way",
+            "time",
             "morning",
             "afternoon",
             "evening",
@@ -406,7 +480,7 @@ export function updateSceneFromMessage(prev: SceneState | null | undefined, cont
         }
     }
 
-    const tod = /\b(early morning|morning|afternoon|evening|late night|night|noon|midnight|dawn|dusk|tonight)\b/i.exec(t);
+    const tod = /\b(early morning|morning|afternoon|evening|late night|night|noon|midnight|dawn|dusk|tonight)\b/i.exec(narrative);
     if (tod) scene.timeOfDay = tod[1].toLowerCase().replace(/\s+/g, " ");
 
     if (snapshot && snapshot.tone && snapshot.tone !== 'neutral') scene.lingeringEmotion = snapshot.tone;
