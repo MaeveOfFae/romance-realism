@@ -31,6 +31,11 @@ This project is intentionally split into:
   - merged into a stage UI note, and/or
   - queued one-shot into the next `systemMessage` when prompt injection is enabled.
 
+## Story beats (unresolved beats)
+
+- Stored as structured objects in `scene.unresolvedBeats` (snippet + stable id).
+- A repair cue attempts to resolve matching beats; if no match is obvious, only the latest beat is resolved.
+
 ## Debugging
 
 - Set `ui_debug_scoring: 1` to expose scored candidates in the in-iframe “Explain scoring” panel.

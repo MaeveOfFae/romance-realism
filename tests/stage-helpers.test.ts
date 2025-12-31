@@ -155,3 +155,14 @@ test("updateSceneFromMessage: does not treat 'still' alone as an unresolved beat
     const scene = updateSceneFromMessage(null, "He is still smiling softly.", {tone: "affection", intensity: "low"});
     assert.ok(!scene.unresolvedBeats || scene.unresolvedBeats.length === 0);
 });
+
+test("updateSceneFromMessage: can resolve only the latest unresolved beat", () => {
+    const s1 = updateSceneFromMessage(null, "An awkward silence lingers between them, unfinished and unspoken.", {tone: "tense", intensity: "low"});
+    const s2 = updateSceneFromMessage(s1, "Their argument remains unresolved, hanging between them.", {tone: "tense", intensity: "low"});
+    assert.ok(Array.isArray(s2.unresolvedBeats));
+    assert.equal(s2.unresolvedBeats!.length, 2);
+
+    const s3 = updateSceneFromMessage(s2, "They clear the air and talk it through.", {tone: "neutral", intensity: "low"});
+    assert.ok(Array.isArray(s3.unresolvedBeats));
+    assert.equal(s3.unresolvedBeats!.length, 1);
+});

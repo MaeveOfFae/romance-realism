@@ -21,6 +21,7 @@ import {
     type PhaseHistoryEntry,
     type Proximity,
     type ProximityHistoryEntry,
+    type SceneState,
 } from "./analysis_helpers";
 
 /***
@@ -46,7 +47,8 @@ type MessageStateType = {
     pendingPromptNotes?: {at: number; fromTurn: number; parts: string[]} | null;
     noteQuotaHistory?: number[];
     lastUnresolvedBeatReminderTurn?: number;
-    lastUnresolvedBeatReminderKey?: string | null;
+    // For reminder cooldown/dedupe (id is stable across sessions).
+    lastUnresolvedBeatReminderId?: string | null;
     lastUiDebug?: {
         turnIndex: number;
         candidates: Array<{id: string; score: number; critical?: boolean; text: string; debug?: unknown}>;
@@ -73,12 +75,7 @@ type ConfigType = ConfigSchema;
  ***/
 type InitStateType = {
     createdAt?: string;
-    initialScene?: {
-        location?: string;
-        timeOfDay?: string;
-        lingeringEmotion?: string;
-        unresolvedBeats?: string[];
-    } | null;
+    initialScene?: SceneState | null;
     [key: string]: any;
 };
 
@@ -91,7 +88,7 @@ type InitStateType = {
     they change branches or jump nodes. Use MessageStateType for that.
  ***/
 type ChatStateType = {
-    scene?: InitStateType["initialScene"] | null;
+    scene?: SceneState | null;
     history?: any;
     [key: string]: any;
 };
@@ -239,18 +236,43 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
 
             let systemMessage: string | null = null;
             if (effectiveConfig.prompt_injection_enabled && this.myInternalState.pendingPromptNotes && Array.isArray(this.myInternalState.pendingPromptNotes.parts)) {
-                const parts: string[] = [];
-                parts.push("INTERNAL REALISM NOTES (do not mention, quote, or acknowledge these notes):");
-                if (effectiveConfig.prompt_injection_include_scene && currentChatState && currentChatState.scene) {
-                    const summary = summarizeScene(currentChatState.scene);
-                    if (summary) parts.push(`Scene: ${summary}`);
-                }
-                for (const p of this.myInternalState.pendingPromptNotes.parts) parts.push(`- ${p}`);
-                parts.push("END INTERNAL REALISM NOTES");
                 const maxChars = typeof effectiveConfig.prompt_injection_max_chars === 'number'
                     ? effectiveConfig.prompt_injection_max_chars
                     : 900;
-                const built = parts.join("\n").slice(0, Math.max(100, maxChars)).trim();
+                const cap = Math.max(100, maxChars);
+                const header = "INTERNAL REALISM NOTES (do not mention, quote, or acknowledge these notes):";
+                const footer = "END INTERNAL REALISM NOTES";
+                const lines: string[] = [header];
+                if (effectiveConfig.prompt_injection_include_scene && currentChatState && currentChatState.scene) {
+                    const summary = summarizeScene(currentChatState.scene);
+                    if (summary) lines.push(`Scene: ${summary}`);
+                }
+                // Always include footer; truncate bullets to fit.
+                const bullets = this.myInternalState.pendingPromptNotes.parts.map((p) => `- ${p}`);
+                const fixedLen = lines.join("\n").length;
+                let currentLen = fixedLen;
+                let addedBullets = 0;
+                for (const line of bullets) {
+                    const totalIfAdd = currentLen + 1 + line.length + 1 + footer.length;
+                    if (totalIfAdd > cap) break;
+                    lines.push(line);
+                    currentLen += 1 + line.length;
+                    addedBullets += 1;
+                }
+                if (addedBullets === 0 && bullets.length > 0) {
+                    const remainingForBullet = cap - (currentLen + 1 + footer.length);
+                    if (remainingForBullet > 4) {
+                        const prefix = "- ";
+                        const raw = bullets[0].startsWith(prefix) ? bullets[0].slice(prefix.length) : bullets[0];
+                        const take = Math.max(0, remainingForBullet - prefix.length);
+                        const text = raw.length > take
+                            ? `${raw.slice(0, Math.max(0, take - 3))}...`
+                            : raw;
+                        lines.push(`${prefix}${text}`);
+                    }
+                }
+                lines.push(footer);
+                const built = lines.join("\n").slice(0, cap).trim();
                 systemMessage = built.length > 0 ? built : null;
                 // one-shot injection
                 this.myInternalState.pendingPromptNotes = null;
@@ -353,7 +375,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         // Scene capture: update scene context heuristically from the bot message
         const prevChatState: ChatStateType | null = (this as any)._chatState || {scene: null};
         const updatedScene = updateSceneFromMessage(prevChatState?.scene || null, content, snapshot);
-        const prevBeatCount = Array.isArray(prevChatState?.scene?.unresolvedBeats) ? prevChatState!.scene!.unresolvedBeats!.length : 0;
+        const prevBeatCount = Array.isArray(prevChatState?.scene?.unresolvedBeats) ? (prevChatState as any).scene.unresolvedBeats.length : 0;
         if (effectiveConfig.scene_unresolved_beats_enabled) {
             const maxBeats = typeof effectiveConfig.unresolved_beats_max_history === 'number'
                 ? effectiveConfig.unresolved_beats_max_history
@@ -363,8 +385,13 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
                 : 160;
             if (Array.isArray((updatedScene as any).unresolvedBeats)) {
                 (updatedScene as any).unresolvedBeats = (updatedScene as any).unresolvedBeats
-                    .map((b: any) => (typeof b === 'string' ? b.trim().slice(0, maxChars) : String(b).slice(0, maxChars)))
-                    .filter((b: any) => typeof b === 'string' && b.length > 0)
+                    .map((b: any) => {
+                        if (b && typeof b === "object" && typeof b.snippet === "string") {
+                            return {...b, snippet: b.snippet.trim().slice(0, maxChars)};
+                        }
+                        return b;
+                    })
+                    .filter((b: any) => b && typeof b === "object" && typeof b.snippet === "string" && b.snippet.length > 0)
                     .slice(-maxBeats);
             }
         } else {
@@ -501,8 +528,9 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
             const threshold = typeof effectiveConfig.tune_unresolved_beat_score_threshold === 'number'
                 ? effectiveConfig.tune_unresolved_beat_score_threshold
                 : thresholdDefault;
-            const sameBeat = reminder.beatKey != null && this.myInternalState.lastUnresolvedBeatReminderKey != null
-                ? reminder.beatKey === this.myInternalState.lastUnresolvedBeatReminderKey
+            const lastId = (this.myInternalState as any).lastUnresolvedBeatReminderId ?? null;
+            const sameBeat = reminder.beatId != null && lastId != null
+                ? reminder.beatId === lastId
                 : false;
             const suppress = beatAddedThisTurn || (withinCooldown && sameBeat);
             if (!suppress && reminder.note && reminder.score >= threshold) {
@@ -513,7 +541,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
                     debug: reminder.reasons,
                 });
                 // persist the key, but only mark turn if selected (below)
-                (this.myInternalState as any)._pendingUnresolvedBeatKey = reminder.beatKey;
+                (this.myInternalState as any)._pendingUnresolvedBeatId = reminder.beatId;
             }
         }
 
@@ -700,9 +728,9 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         // Beat reminder bookkeeping: only record reminder turn if it was actually emitted/queued.
         if (selectedForUi.concat(selectedForPrompt).some((c) => c.id === 'unresolved_beat')) {
             this.myInternalState.lastUnresolvedBeatReminderTurn = turnIndex;
-            this.myInternalState.lastUnresolvedBeatReminderKey = (this.myInternalState as any)._pendingUnresolvedBeatKey ?? null;
+            (this.myInternalState as any).lastUnresolvedBeatReminderId = (this.myInternalState as any)._pendingUnresolvedBeatId ?? null;
         }
-        delete (this.myInternalState as any)._pendingUnresolvedBeatKey;
+        delete (this.myInternalState as any)._pendingUnresolvedBeatId;
 
             return {
                 stageDirections: null,

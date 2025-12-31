@@ -139,6 +139,7 @@ test("Stage.afterResponse: unresolved beats are captured and can be surfaced as 
     const chatState = (stage as any)._chatState;
     assert.ok(Array.isArray(chatState?.scene?.unresolvedBeats));
     assert.ok(chatState.scene.unresolvedBeats.length >= 1);
+    assert.equal(typeof chatState.scene.unresolvedBeats[0]?.snippet, "string");
 
     await stage.afterResponse({content: transcripts.unresolved_beats_reminder.botTurns[1]} as any);
     assert.ok(stage.myInternalState.pendingPromptNotes);

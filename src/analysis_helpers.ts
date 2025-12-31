@@ -523,7 +523,8 @@ export type SceneState = {
     location?: string;
     timeOfDay?: string;
     lingeringEmotion?: string;
-    unresolvedBeats?: string[];
+    unresolvedBeats?: UnresolvedBeat[];
+    resolvedBeats?: UnresolvedBeat[];
 };
 
 export function summarizeScene(scene: SceneState | null | undefined): string | null {
@@ -536,12 +537,53 @@ export function summarizeScene(scene: SceneState | null | undefined): string | n
     return parts.length > 0 ? parts.join(' · ') : null;
 }
 
+export type UnresolvedBeat = {
+    id: string;
+    snippet: string;
+    createdAt: number;
+    lastSeenAt: number;
+};
+
 function normalizeBeatSnippet(s: string): string {
     return (s || "")
         .toLowerCase()
         .replace(/\s+/g, " ")
         .replace(/["'“”‘’]/g, "")
         .trim();
+}
+
+function stableHashId(input: string): string {
+    // Small non-crypto hash for stable ids.
+    let h = 2166136261;
+    for (let i = 0; i < input.length; i++) {
+        h ^= input.charCodeAt(i);
+        h = Math.imul(h, 16777619);
+    }
+    return `b_${(h >>> 0).toString(36)}`;
+}
+
+function coerceBeats(beats: unknown, now: number): UnresolvedBeat[] {
+    if (!Array.isArray(beats)) return [];
+    const out: UnresolvedBeat[] = [];
+    for (const b of beats) {
+        if (b && typeof b === "object" && typeof (b as any).snippet === "string") {
+            const snippet = String((b as any).snippet).trim();
+            if (!snippet) continue;
+            const norm = normalizeBeatSnippet(snippet);
+            const id = typeof (b as any).id === "string" && (b as any).id.length > 0 ? (b as any).id : stableHashId(norm);
+            const createdAt = typeof (b as any).createdAt === "number" && Number.isFinite((b as any).createdAt) ? (b as any).createdAt : now;
+            const lastSeenAt = typeof (b as any).lastSeenAt === "number" && Number.isFinite((b as any).lastSeenAt) ? (b as any).lastSeenAt : createdAt;
+            out.push({id, snippet, createdAt, lastSeenAt});
+            continue;
+        }
+        if (typeof b === "string") {
+            const snippet = b.trim();
+            if (!snippet) continue;
+            const norm = normalizeBeatSnippet(snippet);
+            out.push({id: stableHashId(norm), snippet, createdAt: now, lastSeenAt: now});
+        }
+    }
+    return out;
 }
 
 function extractUnresolvedBeatSnippet(narrative: string): string | null {
@@ -578,7 +620,50 @@ function hasResolutionCue(narrative: string): boolean {
     return repair.test(t) || apologyAndForgive;
 }
 
+function extractKeywords(text: string): string[] {
+    const stop = new Set([
+        "the", "a", "an", "and", "or", "but", "so", "to", "of", "in", "on", "at", "for", "with", "by",
+        "is", "are", "was", "were", "be", "been", "being",
+        "i", "you", "he", "she", "they", "we", "it", "him", "her", "them", "us",
+        "his", "her", "their", "your", "my", "our",
+        "this", "that", "these", "those",
+        "as", "from", "into", "over", "under", "between",
+        "still", "just", "really", "very",
+    ]);
+    return (text || "")
+        .toLowerCase()
+        .replace(/["'“”‘’]/g, "")
+        .split(/[^a-z0-9]+/g)
+        .map((w) => w.trim())
+        .filter((w) => w.length >= 3 && !stop.has(w));
+}
+
+function resolveMatchingBeats(beats: UnresolvedBeat[], narrative: string, now: number): {unresolved: UnresolvedBeat[]; resolved: UnresolvedBeat[]} {
+    if (!Array.isArray(beats) || beats.length === 0) return {unresolved: [], resolved: []};
+    const narrativeKeys = new Set(extractKeywords(narrative));
+    const resolved: UnresolvedBeat[] = [];
+    const unresolved: UnresolvedBeat[] = [];
+
+    for (const b of beats) {
+        const beatKeys = extractKeywords(b.snippet);
+        const shared = beatKeys.filter((k) => narrativeKeys.has(k));
+        const qualifies = shared.length >= 2;
+        if (qualifies) resolved.push({...b, lastSeenAt: now});
+        else unresolved.push(b);
+    }
+
+    // If we saw a strong resolution cue but couldn't match a topic, resolve only the latest beat.
+    if (resolved.length === 0 && unresolved.length > 0) {
+        const latest = unresolved[unresolved.length - 1];
+        resolved.push({...latest, lastSeenAt: now});
+        unresolved.pop();
+    }
+
+    return {unresolved, resolved};
+}
+
 export function updateSceneFromMessage(prev: SceneState | null | undefined, content: string, snapshot: EmotionSnapshot): SceneState {
+    const now = Date.now();
     const scene: SceneState = Object.assign({}, prev || {});
     const t = content;
     const narrative = stripQuotedDialogue(t);
@@ -620,15 +705,26 @@ export function updateSceneFromMessage(prev: SceneState | null | undefined, cont
 
     if (snapshot && snapshot.tone && snapshot.tone !== 'neutral') scene.lingeringEmotion = snapshot.tone;
 
+    scene.unresolvedBeats = coerceBeats(scene.unresolvedBeats, now);
+    scene.resolvedBeats = coerceBeats(scene.resolvedBeats, now);
+
     if (hasResolutionCue(narrative)) {
-        scene.unresolvedBeats = [];
+        const resolved = resolveMatchingBeats(scene.unresolvedBeats || [], narrative, now);
+        scene.unresolvedBeats = resolved.unresolved;
+        scene.resolvedBeats = (scene.resolvedBeats || []).concat(resolved.resolved).slice(-20);
     } else {
         const beat = extractUnresolvedBeatSnippet(narrative);
         if (beat) {
             const normalized = normalizeBeatSnippet(beat);
-            const existing = new Set((scene.unresolvedBeats || []).map(normalizeBeatSnippet));
+            const existing = new Set((scene.unresolvedBeats || []).map((b) => normalizeBeatSnippet(b.snippet)));
             if (!existing.has(normalized)) {
-                scene.unresolvedBeats = (scene.unresolvedBeats || []).concat([beat]);
+                const id = stableHashId(normalized);
+                scene.unresolvedBeats = (scene.unresolvedBeats || []).concat([{id, snippet: beat, createdAt: now, lastSeenAt: now}]);
+            } else {
+                scene.unresolvedBeats = (scene.unresolvedBeats || []).map((b) => {
+                    if (normalizeBeatSnippet(b.snippet) !== normalized) return b;
+                    return {...b, lastSeenAt: now};
+                });
             }
         }
     }
@@ -641,18 +737,18 @@ export function scoreUnresolvedBeatReminder(params: {
     snapshot: EmotionSnapshot;
     priorEmotions?: EmotionSnapshot[];
     memoryScars?: MemoryScar[];
-}): {note: string | null; score: number; reasons: WeightedHit[]; beatKey: string | null} {
+}): {note: string | null; score: number; reasons: WeightedHit[]; beatId: string | null} {
     const scene = params.scene;
     const beats = scene && Array.isArray(scene.unresolvedBeats) ? scene.unresolvedBeats : [];
-    if (!beats || beats.length === 0) return {note: null, score: 0, reasons: [], beatKey: null};
+    if (!beats || beats.length === 0) return {note: null, score: 0, reasons: [], beatId: null};
 
-    const lastBeat = beats[beats.length - 1] || "";
-    const beatKey = normalizeBeatSnippet(lastBeat) || null;
+    const lastBeat = beats[beats.length - 1];
+    const beatId = lastBeat && typeof lastBeat.id === "string" ? lastBeat.id : null;
     const t = params.content || "";
     const narrative = stripQuotedDialogue(t);
 
     // If the current message contains explicit repair language, don't nag.
-    if (hasResolutionCue(narrative)) return {note: null, score: 0, reasons: [{label: "resolution_cue", weight: -5}], beatKey};
+    if (hasResolutionCue(narrative)) return {note: null, score: 0, reasons: [{label: "resolution_cue", weight: -5}], beatId};
 
     const reasons: WeightedHit[] = [];
 
@@ -682,9 +778,9 @@ export function scoreUnresolvedBeatReminder(params: {
     }
 
     const score = sumWeights(reasons);
-    if (score <= 0) return {note: null, score, reasons, beatKey};
+    if (score <= 0) return {note: null, score, reasons, beatId};
 
-    const snippet = lastBeat.length > 0 ? `“${lastBeat}”` : "(unresolved beat)";
+    const snippet = lastBeat && lastBeat.snippet.length > 0 ? `“${lastBeat.snippet}”` : "(unresolved beat)";
     const note = `Unresolved beat reminder: ${snippet} Consider addressing it before escalating/softening too far.`;
-    return {note, score, reasons, beatKey};
+    return {note, score, reasons, beatId};
 }
