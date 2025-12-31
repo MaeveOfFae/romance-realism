@@ -382,7 +382,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         const delta = evaluateEmotionalDelta(snapshot, priorEmotions, content);
         const deltaScore = typeof (delta as any).score === 'number' ? (delta as any).score : 0;
         const deltaThresholdByStrictness = ({1: 5, 2: 3, 3: 2} as Record<number, number>)[strictnessLevel] ?? 3;
-        if (effectiveConfig.note_emotion_delta && effectiveConfig.enabled && strictnessLevel >= 2 && deltaScore >= deltaThresholdByStrictness && (canEmitUiNote || criticalSystemNote)) {
+        if (effectiveConfig.note_emotion_delta && effectiveConfig.enabled && strictnessLevel >= 2 && canEmitUiNote && delta.detected && deltaScore >= deltaThresholdByStrictness) {
             // annotation frequency control: strictness 1..3 -> allowed annotations per window
             const allowedByStrictness = ({1: 1, 2: 2, 3: 3} as Record<number, number>)[strictnessLevel] || 2;
             this.myInternalState.lastAnnotations = this.myInternalState.lastAnnotations || [];
