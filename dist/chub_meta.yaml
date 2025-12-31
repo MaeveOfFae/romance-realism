@@ -41,8 +41,10 @@ config_schema:
       maximum: 30
       default: 15
     ui_enabled:
-      type: boolean
-      default: true
+      type: integer
+      minimum: 0
+      maximum: 1
+      default: 1
       description: "Show notes inside the stage UI."
     ui_max_notes:
       type: integer
@@ -51,12 +53,16 @@ config_schema:
       default: 10
       description: "How many notes to keep in the stage UI feed."
     ui_show_status:
-      type: boolean
-      default: true
+      type: integer
+      minimum: 0
+      maximum: 1
+      default: 1
       description: "Show the status line (turn count / last response time)."
     ui_show_timestamps:
-      type: boolean
-      default: true
+      type: integer
+      minimum: 0
+      maximum: 1
+      default: 1
       description: "Show timestamps on each note."
     max_ui_notes_per_20:
       type: integer
@@ -65,32 +71,50 @@ config_schema:
       default: -1
       description: "Override strictness throttle (max UI notes per ~20 turns). Use -1 for auto."
     note_scene_summary:
-      type: boolean
-      default: true
+      type: integer
+      minimum: 0
+      maximum: 1
+      default: 1
     note_emotion_delta:
-      type: boolean
-      default: true
+      type: integer
+      minimum: 0
+      maximum: 1
+      default: 1
     note_phase:
-      type: boolean
-      default: true
+      type: integer
+      minimum: 0
+      maximum: 1
+      default: 1
     note_proximity:
-      type: boolean
-      default: true
+      type: integer
+      minimum: 0
+      maximum: 1
+      default: 1
     note_consent:
-      type: boolean
-      default: true
+      type: integer
+      minimum: 0
+      maximum: 1
+      default: 1
     note_subtext:
-      type: boolean
-      default: true
+      type: integer
+      minimum: 0
+      maximum: 1
+      default: 1
     note_silence:
-      type: boolean
-      default: true
+      type: integer
+      minimum: 0
+      maximum: 1
+      default: 1
     note_drift:
-      type: boolean
-      default: true
+      type: integer
+      minimum: 0
+      maximum: 1
+      default: 1
     note_scar_recall:
-      type: boolean
-      default: true
+      type: integer
+      minimum: 0
+      maximum: 1
+      default: 1
   additionalProperties: true
 
 # The schema of the state that you store.

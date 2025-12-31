@@ -21,3 +21,10 @@ test("normalizeConfig: floors numeric values", () => {
     assert.equal(normalized.ui_max_notes, 9);
     assert.equal(normalized.max_ui_notes_per_20, 5);
 });
+
+test("normalizeConfig: accepts 0/1 for boolean-like toggles", () => {
+    const normalized = normalizeConfig({ui_enabled: 0, ui_show_status: 0, note_emotion_delta: 0});
+    assert.equal(normalized.ui_enabled, false);
+    assert.equal(normalized.ui_show_status, false);
+    assert.equal(normalized.note_emotion_delta, false);
+});
