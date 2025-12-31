@@ -124,3 +124,24 @@ test("Stage.afterResponse: action-only replies are not treated as silence", asyn
     const res = await stage.beforePrompt({content: "next"} as any);
     assert.match(res.systemMessage as string, /Pause noted/i);
 });
+
+test("Stage.afterResponse: unresolved beats are captured and can be surfaced as reminders", async () => {
+    const stage = makeStage({
+        strictness: 3,
+        ui_enabled: 1,
+        prompt_injection_enabled: 1,
+        prompt_injection_include_scene: 0,
+        note_unresolved_beats: 1,
+        scene_unresolved_beats_enabled: 1,
+    });
+
+    await stage.afterResponse({content: transcripts.unresolved_beats_reminder.botTurns[0]} as any);
+    const chatState = (stage as any)._chatState;
+    assert.ok(Array.isArray(chatState?.scene?.unresolvedBeats));
+    assert.ok(chatState.scene.unresolvedBeats.length >= 1);
+
+    await stage.afterResponse({content: transcripts.unresolved_beats_reminder.botTurns[1]} as any);
+    assert.ok(stage.myInternalState.pendingPromptNotes);
+    const res = await stage.beforePrompt({content: "next"} as any);
+    assert.match(res.systemMessage as string, /Unresolved beat reminder/i);
+});

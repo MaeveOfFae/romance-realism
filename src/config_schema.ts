@@ -29,6 +29,14 @@ export type ConfigSchema = {
     prompt_injection_max_parts?: number; // 1..6
     prompt_injection_max_chars?: number; // 100..4000
 
+    // Unresolved beat capture + reminders
+    scene_unresolved_beats_enabled?: boolean | number;
+    note_unresolved_beats?: boolean | number;
+    unresolved_beats_max_history?: number; // 0..20
+    unresolved_beats_snippet_max_chars?: number; // 40..240
+    tune_unresolved_beat_score_threshold?: number; // null/undefined -> strictness defaults, otherwise 1..20
+    tune_unresolved_beat_cooldown_turns?: number; // null/undefined -> strictness defaults, otherwise 0..50
+
     // Note toggles
     note_scene_summary?: boolean | number;
     note_emotion_delta?: boolean | number;
@@ -52,6 +60,8 @@ export type NormalizedConfig = Omit<ConfigSchema, 'enabled' | 'strictness' | 'me
     | 'ui_enabled' | 'ui_max_notes' | 'ui_show_status' | 'ui_show_timestamps' | 'max_notes_per_20' | 'max_ui_notes_per_20'
     | 'ui_debug_scoring' | 'ui_debug_max_candidates'
     | 'prompt_injection_enabled' | 'prompt_injection_include_scene' | 'prompt_injection_max_parts' | 'prompt_injection_max_chars'
+    | 'scene_unresolved_beats_enabled' | 'note_unresolved_beats' | 'unresolved_beats_max_history' | 'unresolved_beats_snippet_max_chars'
+    | 'tune_unresolved_beat_score_threshold' | 'tune_unresolved_beat_cooldown_turns'
     | 'tune_phase_weight_threshold' | 'tune_delta_score_threshold' | 'tune_ui_note_parts'
     | 'note_scene_summary' | 'note_emotion_delta' | 'note_phase' | 'note_proximity' | 'note_consent'
     | 'note_subtext' | 'note_silence' | 'note_drift' | 'note_scar_recall'> & {
@@ -71,6 +81,13 @@ export type NormalizedConfig = Omit<ConfigSchema, 'enabled' | 'strictness' | 'me
     prompt_injection_include_scene: boolean;
     prompt_injection_max_parts: number;
     prompt_injection_max_chars: number;
+
+    scene_unresolved_beats_enabled: boolean;
+    note_unresolved_beats: boolean;
+    unresolved_beats_max_history: number;
+    unresolved_beats_snippet_max_chars: number;
+    tune_unresolved_beat_score_threshold: number | null;
+    tune_unresolved_beat_cooldown_turns: number | null;
 
     note_scene_summary: boolean;
     note_emotion_delta: boolean;
@@ -103,6 +120,13 @@ export const DEFAULT_CONFIG: NormalizedConfig = {
     prompt_injection_include_scene: true,
     prompt_injection_max_parts: 3,
     prompt_injection_max_chars: 900,
+
+    scene_unresolved_beats_enabled: true,
+    note_unresolved_beats: true,
+    unresolved_beats_max_history: 10,
+    unresolved_beats_snippet_max_chars: 160,
+    tune_unresolved_beat_score_threshold: null,
+    tune_unresolved_beat_cooldown_turns: null,
 
     note_scene_summary: true,
     note_emotion_delta: true,
@@ -173,6 +197,21 @@ export function normalizeConfig(cfg?: ConfigSchema | null): NormalizedConfig {
         ? clamp(Math.floor(src.prompt_injection_max_chars), 100, 4000)
         : DEFAULT_CONFIG.prompt_injection_max_chars;
 
+    const scene_unresolved_beats_enabled = asBool(src.scene_unresolved_beats_enabled, DEFAULT_CONFIG.scene_unresolved_beats_enabled);
+    const note_unresolved_beats = asBool(src.note_unresolved_beats, DEFAULT_CONFIG.note_unresolved_beats);
+    const unresolved_beats_max_history = (typeof src.unresolved_beats_max_history === 'number' && Number.isFinite(src.unresolved_beats_max_history))
+        ? clamp(Math.floor(src.unresolved_beats_max_history), 0, 20)
+        : DEFAULT_CONFIG.unresolved_beats_max_history;
+    const unresolved_beats_snippet_max_chars = (typeof src.unresolved_beats_snippet_max_chars === 'number' && Number.isFinite(src.unresolved_beats_snippet_max_chars))
+        ? clamp(Math.floor(src.unresolved_beats_snippet_max_chars), 40, 240)
+        : DEFAULT_CONFIG.unresolved_beats_snippet_max_chars;
+    const tune_unresolved_beat_score_threshold = (typeof src.tune_unresolved_beat_score_threshold === 'number' && Number.isFinite(src.tune_unresolved_beat_score_threshold))
+        ? clamp(Math.floor(src.tune_unresolved_beat_score_threshold), 1, 20)
+        : DEFAULT_CONFIG.tune_unresolved_beat_score_threshold;
+    const tune_unresolved_beat_cooldown_turns = (typeof src.tune_unresolved_beat_cooldown_turns === 'number' && Number.isFinite(src.tune_unresolved_beat_cooldown_turns))
+        ? clamp(Math.floor(src.tune_unresolved_beat_cooldown_turns), 0, 50)
+        : DEFAULT_CONFIG.tune_unresolved_beat_cooldown_turns;
+
     const note_scene_summary = asBool(src.note_scene_summary, DEFAULT_CONFIG.note_scene_summary);
     const note_emotion_delta = asBool(src.note_emotion_delta, DEFAULT_CONFIG.note_emotion_delta);
     const note_phase = asBool(src.note_phase, DEFAULT_CONFIG.note_phase);
@@ -210,6 +249,13 @@ export function normalizeConfig(cfg?: ConfigSchema | null): NormalizedConfig {
         prompt_injection_max_parts,
         prompt_injection_max_chars,
 
+        scene_unresolved_beats_enabled,
+        note_unresolved_beats,
+        unresolved_beats_max_history,
+        unresolved_beats_snippet_max_chars,
+        tune_unresolved_beat_score_threshold,
+        tune_unresolved_beat_cooldown_turns,
+
         note_scene_summary,
         note_emotion_delta,
         note_phase,
@@ -230,6 +276,8 @@ export function normalizeConfig(cfg?: ConfigSchema | null): NormalizedConfig {
                 'ui_enabled', 'ui_max_notes', 'ui_show_status', 'ui_show_timestamps', 'max_notes_per_20', 'max_ui_notes_per_20',
                 'ui_debug_scoring', 'ui_debug_max_candidates',
                 'prompt_injection_enabled', 'prompt_injection_include_scene', 'prompt_injection_max_parts', 'prompt_injection_max_chars',
+                'scene_unresolved_beats_enabled', 'note_unresolved_beats', 'unresolved_beats_max_history', 'unresolved_beats_snippet_max_chars',
+                'tune_unresolved_beat_score_threshold', 'tune_unresolved_beat_cooldown_turns',
                 'note_scene_summary', 'note_emotion_delta', 'note_phase', 'note_proximity', 'note_consent',
                 'note_subtext', 'note_silence', 'note_drift', 'note_scar_recall',
                 'tune_phase_weight_threshold', 'tune_delta_score_threshold', 'tune_ui_note_parts',
@@ -262,6 +310,12 @@ export function validateConfig(cfg?: ConfigSchema | null): string[] {
     if (cfg.prompt_injection_include_scene != null && !(typeof cfg.prompt_injection_include_scene === 'boolean' || typeof cfg.prompt_injection_include_scene === 'number')) errors.push('`prompt_injection_include_scene` must be a boolean (or 0/1).');
     if (cfg.prompt_injection_max_parts != null && (typeof cfg.prompt_injection_max_parts !== 'number' || !Number.isFinite(cfg.prompt_injection_max_parts))) errors.push('`prompt_injection_max_parts` must be a number.');
     if (cfg.prompt_injection_max_chars != null && (typeof cfg.prompt_injection_max_chars !== 'number' || !Number.isFinite(cfg.prompt_injection_max_chars))) errors.push('`prompt_injection_max_chars` must be a number.');
+    if (cfg.scene_unresolved_beats_enabled != null && !(typeof cfg.scene_unresolved_beats_enabled === 'boolean' || typeof cfg.scene_unresolved_beats_enabled === 'number')) errors.push('`scene_unresolved_beats_enabled` must be a boolean (or 0/1).');
+    if (cfg.note_unresolved_beats != null && !(typeof cfg.note_unresolved_beats === 'boolean' || typeof cfg.note_unresolved_beats === 'number')) errors.push('`note_unresolved_beats` must be a boolean (or 0/1).');
+    if (cfg.unresolved_beats_max_history != null && (typeof cfg.unresolved_beats_max_history !== 'number' || !Number.isFinite(cfg.unresolved_beats_max_history))) errors.push('`unresolved_beats_max_history` must be a number.');
+    if (cfg.unresolved_beats_snippet_max_chars != null && (typeof cfg.unresolved_beats_snippet_max_chars !== 'number' || !Number.isFinite(cfg.unresolved_beats_snippet_max_chars))) errors.push('`unresolved_beats_snippet_max_chars` must be a number.');
+    if (cfg.tune_unresolved_beat_score_threshold != null && (typeof cfg.tune_unresolved_beat_score_threshold !== 'number' || !Number.isFinite(cfg.tune_unresolved_beat_score_threshold))) errors.push('`tune_unresolved_beat_score_threshold` must be a number.');
+    if (cfg.tune_unresolved_beat_cooldown_turns != null && (typeof cfg.tune_unresolved_beat_cooldown_turns !== 'number' || !Number.isFinite(cfg.tune_unresolved_beat_cooldown_turns))) errors.push('`tune_unresolved_beat_cooldown_turns` must be a number.');
     if (cfg.tune_phase_weight_threshold != null && (typeof cfg.tune_phase_weight_threshold !== 'number' || !Number.isFinite(cfg.tune_phase_weight_threshold))) errors.push('`tune_phase_weight_threshold` must be a number.');
     if (cfg.tune_delta_score_threshold != null && (typeof cfg.tune_delta_score_threshold !== 'number' || !Number.isFinite(cfg.tune_delta_score_threshold))) errors.push('`tune_delta_score_threshold` must be a number.');
     if (cfg.tune_ui_note_parts != null && (typeof cfg.tune_ui_note_parts !== 'number' || !Number.isFinite(cfg.tune_ui_note_parts))) errors.push('`tune_ui_note_parts` must be a number.');

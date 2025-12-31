@@ -536,6 +536,48 @@ export function summarizeScene(scene: SceneState | null | undefined): string | n
     return parts.length > 0 ? parts.join(' · ') : null;
 }
 
+function normalizeBeatSnippet(s: string): string {
+    return (s || "")
+        .toLowerCase()
+        .replace(/\s+/g, " ")
+        .replace(/["'“”‘’]/g, "")
+        .trim();
+}
+
+function extractUnresolvedBeatSnippet(narrative: string): string | null {
+    const t = (narrative || "").trim();
+    if (!t) return null;
+
+    // Strong explicit unresolved markers.
+    const strong =
+        /\b(unresolved|unfinished|left hanging|still unspoken|unspoken|pending|between them|left unsaid)\b/i;
+
+    // We intentionally do NOT treat the word "still" alone as an unresolved-beat signal (too many false positives).
+    const stillWithTension =
+        /\bstill\s+(?:can'?t|won'?t|doesn'?t|hasn'?t|haven'?t|refuses? to|won'?t)\s+(?:say|talk|answer|forgive|trust|look at)\b/i;
+
+    const lingeringTension =
+        /\b(?:remains?|lingers?)\s+(?:awkward|tense|uncomfortable|unresolved|between them)\b/i;
+
+    const hasSignal = strong.test(t) || stillWithTension.test(t) || lingeringTension.test(t);
+    if (!hasSignal) return null;
+
+    // Try to capture the sentence containing the marker for a concise snippet.
+    const sentences = t.split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean);
+    const pick = sentences.find((s) => strong.test(s) || stillWithTension.test(s) || lingeringTension.test(s)) || sentences[0] || t;
+    return pick.replace(/\s+/g, " ").trim();
+}
+
+function hasResolutionCue(narrative: string): boolean {
+    const t = (narrative || "");
+    // Require fairly explicit repair language before clearing beats.
+    const repair =
+        /\b(talk(?:s|ed)? it through|clear(?:s|ed)? the air|make(?:s|made)? up|reconcile(?:s|d)?|reach(?:es|ed)? an understanding|settle(?:s|d)? it|resolved|resolution)\b/i;
+    const apologyAndForgive =
+        /\b(apolog(?:y|ize|ise|izes|ised|ized))\b/i.test(t) && /\b(forgive(?:s|n)?|forgiven|forgives)\b/i.test(t);
+    return repair.test(t) || apologyAndForgive;
+}
+
 export function updateSceneFromMessage(prev: SceneState | null | undefined, content: string, snapshot: EmotionSnapshot): SceneState {
     const scene: SceneState = Object.assign({}, prev || {});
     const t = content;
@@ -578,9 +620,71 @@ export function updateSceneFromMessage(prev: SceneState | null | undefined, cont
 
     if (snapshot && snapshot.tone && snapshot.tone !== 'neutral') scene.lingeringEmotion = snapshot.tone;
 
-    const unresolvedPatterns = /\b(?:still|remain|unresolved|unfinished|left hanging|pending|unspoken|between them)\b/i;
-    if (unresolvedPatterns.test(t)) {
-        scene.unresolvedBeats = (scene.unresolvedBeats || []).concat([t.trim().slice(0, 160)]).slice(-10);
+    if (hasResolutionCue(narrative)) {
+        scene.unresolvedBeats = [];
+    } else {
+        const beat = extractUnresolvedBeatSnippet(narrative);
+        if (beat) {
+            const normalized = normalizeBeatSnippet(beat);
+            const existing = new Set((scene.unresolvedBeats || []).map(normalizeBeatSnippet));
+            if (!existing.has(normalized)) {
+                scene.unresolvedBeats = (scene.unresolvedBeats || []).concat([beat]);
+            }
+        }
     }
     return scene;
+}
+
+export function scoreUnresolvedBeatReminder(params: {
+    scene: SceneState | null | undefined;
+    content: string;
+    snapshot: EmotionSnapshot;
+    priorEmotions?: EmotionSnapshot[];
+    memoryScars?: MemoryScar[];
+}): {note: string | null; score: number; reasons: WeightedHit[]; beatKey: string | null} {
+    const scene = params.scene;
+    const beats = scene && Array.isArray(scene.unresolvedBeats) ? scene.unresolvedBeats : [];
+    if (!beats || beats.length === 0) return {note: null, score: 0, reasons: [], beatKey: null};
+
+    const lastBeat = beats[beats.length - 1] || "";
+    const beatKey = normalizeBeatSnippet(lastBeat) || null;
+    const t = params.content || "";
+    const narrative = stripQuotedDialogue(t);
+
+    // If the current message contains explicit repair language, don't nag.
+    if (hasResolutionCue(narrative)) return {note: null, score: 0, reasons: [{label: "resolution_cue", weight: -5}], beatKey};
+
+    const reasons: WeightedHit[] = [];
+
+    const timeSkip = /\b(later|the next day|next morning|hours later|days later|weeks later|afterward|after that)\b/i.test(narrative);
+    if (timeSkip) pushWeighted(reasons, "time_skip", 3);
+
+    const comfortOrEscalation =
+        /\b(kiss(?:es|ed|ing)?|hugs?|embrace(?:s|d)?|smiles? softly|laughs?|relaxes?|softens|tenderly|warmly)\b/i.test(narrative);
+    if (comfortOrEscalation) pushWeighted(reasons, "softening_or_escalation", 2);
+
+    const intimate = /\b(kiss(?:es|ed|ing)?|making love|have sex|sex\b|undress|nude|orgasm)\b/i.test(narrative);
+    if (intimate) pushWeighted(reasons, "intimacy", 3);
+
+    const curTone = params.snapshot?.tone || "neutral";
+    if (["affection", "excited"].includes(curTone)) pushWeighted(reasons, "positive_tone", 1);
+
+    const prev = (params.priorEmotions || []).slice(-2);
+    const prevTone = prev.length > 0 ? prev[prev.length - 1].tone : "neutral";
+    const prevNegative = ["sad", "angry", "anxious", "jealous", "tense"].includes(prevTone);
+    const curPositive = ["affection", "excited"].includes(curTone);
+    if (prevNegative && curPositive) pushWeighted(reasons, "neg_to_pos_shift", 2);
+
+    const scars = params.memoryScars || [];
+    const lastScar = scars.length > 0 ? scars[scars.length - 1].event : null;
+    if (lastScar && ["conflict", "betrayal", "rejection"].includes(lastScar)) {
+        pushWeighted(reasons, `recent_scar_${lastScar}`, 1);
+    }
+
+    const score = sumWeights(reasons);
+    if (score <= 0) return {note: null, score, reasons, beatKey};
+
+    const snippet = lastBeat.length > 0 ? `“${lastBeat}”` : "(unresolved beat)";
+    const note = `Unresolved beat reminder: ${snippet} Consider addressing it before escalating/softening too far.`;
+    return {note, score, reasons, beatKey};
 }

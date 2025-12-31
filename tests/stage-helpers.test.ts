@@ -150,3 +150,8 @@ test("updateSceneFromMessage: avoids vague location extraction", () => {
     const scene = updateSceneFromMessage(null, "In the end, you both leave.", {tone: "neutral", intensity: "low"});
     assert.equal(scene.location ?? null, null);
 });
+
+test("updateSceneFromMessage: does not treat 'still' alone as an unresolved beat", () => {
+    const scene = updateSceneFromMessage(null, "He is still smiling softly.", {tone: "affection", intensity: "low"});
+    assert.ok(!scene.unresolvedBeats || scene.unresolvedBeats.length === 0);
+});

@@ -12,6 +12,7 @@ import {
     evaluateProximityTransition,
     extractEmotionSnapshot,
     recallMemoryScar,
+    scoreUnresolvedBeatReminder,
     scoreSilenceOrPause,
     scoreSubtext,
     summarizeScene,
@@ -44,6 +45,8 @@ type MessageStateType = {
     overlayNotes?: Array<{text: string; at: number}>;
     pendingPromptNotes?: {at: number; fromTurn: number; parts: string[]} | null;
     noteQuotaHistory?: number[];
+    lastUnresolvedBeatReminderTurn?: number;
+    lastUnresolvedBeatReminderKey?: string | null;
     lastUiDebug?: {
         turnIndex: number;
         candidates: Array<{id: string; score: number; critical?: boolean; text: string; debug?: unknown}>;
@@ -350,6 +353,25 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         // Scene capture: update scene context heuristically from the bot message
         const prevChatState: ChatStateType | null = (this as any)._chatState || {scene: null};
         const updatedScene = updateSceneFromMessage(prevChatState?.scene || null, content, snapshot);
+        const prevBeatCount = Array.isArray(prevChatState?.scene?.unresolvedBeats) ? prevChatState!.scene!.unresolvedBeats!.length : 0;
+        if (effectiveConfig.scene_unresolved_beats_enabled) {
+            const maxBeats = typeof effectiveConfig.unresolved_beats_max_history === 'number'
+                ? effectiveConfig.unresolved_beats_max_history
+                : 10;
+            const maxChars = typeof effectiveConfig.unresolved_beats_snippet_max_chars === 'number'
+                ? effectiveConfig.unresolved_beats_snippet_max_chars
+                : 160;
+            if (Array.isArray((updatedScene as any).unresolvedBeats)) {
+                (updatedScene as any).unresolvedBeats = (updatedScene as any).unresolvedBeats
+                    .map((b: any) => (typeof b === 'string' ? b.trim().slice(0, maxChars) : String(b).slice(0, maxChars)))
+                    .filter((b: any) => typeof b === 'string' && b.length > 0)
+                    .slice(-maxBeats);
+            }
+        } else {
+            (updatedScene as any).unresolvedBeats = [];
+        }
+        const nextBeatCount = Array.isArray((updatedScene as any).unresolvedBeats) ? (updatedScene as any).unresolvedBeats.length : 0;
+        const beatAddedThisTurn = nextBeatCount > prevBeatCount;
         const updatedChatState: ChatStateType = {...(prevChatState || {}), scene: updatedScene};
         // persist in internal holder
         (this as any)._chatState = updatedChatState;
@@ -457,6 +479,43 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
 
         // append to lastEmotions keeping small buffer after detection
         this.myInternalState.lastEmotions = priorEmotions.concat(snapshot).slice(-5);
+
+        // Unresolved beat reminder (best-effort): can show in UI and/or be queued for prompt injection.
+        if (effectiveConfig.note_unresolved_beats && effectiveConfig.scene_unresolved_beats_enabled && strictnessLevel >= 2) {
+            const lastReminderTurn = typeof this.myInternalState.lastUnresolvedBeatReminderTurn === 'number'
+                ? this.myInternalState.lastUnresolvedBeatReminderTurn
+                : -9999;
+            const cooldownDefault = ({1: 999, 2: 10, 3: 6} as Record<number, number>)[strictnessLevel] ?? 10;
+            const cooldown = typeof effectiveConfig.tune_unresolved_beat_cooldown_turns === 'number'
+                ? effectiveConfig.tune_unresolved_beat_cooldown_turns
+                : cooldownDefault;
+            const withinCooldown = turnIndex - lastReminderTurn < cooldown;
+            const reminder = scoreUnresolvedBeatReminder({
+                scene: updatedChatState?.scene || null,
+                content,
+                snapshot,
+                priorEmotions,
+                memoryScars: this.myInternalState.memoryScars || [],
+            });
+            const thresholdDefault = ({1: 99, 2: 3, 3: 2} as Record<number, number>)[strictnessLevel] ?? 3;
+            const threshold = typeof effectiveConfig.tune_unresolved_beat_score_threshold === 'number'
+                ? effectiveConfig.tune_unresolved_beat_score_threshold
+                : thresholdDefault;
+            const sameBeat = reminder.beatKey != null && this.myInternalState.lastUnresolvedBeatReminderKey != null
+                ? reminder.beatKey === this.myInternalState.lastUnresolvedBeatReminderKey
+                : false;
+            const suppress = beatAddedThisTurn || (withinCooldown && sameBeat);
+            if (!suppress && reminder.note && reminder.score >= threshold) {
+                addCandidate({
+                    id: 'unresolved_beat',
+                    text: reminder.note.replace(/^System note:\s*/i, ''),
+                    score: reminder.score,
+                    debug: reminder.reasons,
+                });
+                // persist the key, but only mark turn if selected (below)
+                (this.myInternalState as any)._pendingUnresolvedBeatKey = reminder.beatKey;
+            }
+        }
 
         // Merge escalation warning into systemMessage (do not overwrite existing note if present)
         if (effectiveConfig.note_phase && escalationWarning) {
@@ -637,6 +696,13 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         } else {
             this.myInternalState.lastUiDebug = null;
         }
+
+        // Beat reminder bookkeeping: only record reminder turn if it was actually emitted/queued.
+        if (selectedForUi.concat(selectedForPrompt).some((c) => c.id === 'unresolved_beat')) {
+            this.myInternalState.lastUnresolvedBeatReminderTurn = turnIndex;
+            this.myInternalState.lastUnresolvedBeatReminderKey = (this.myInternalState as any)._pendingUnresolvedBeatKey ?? null;
+        }
+        delete (this.myInternalState as any)._pendingUnresolvedBeatKey;
 
             return {
                 stageDirections: null,

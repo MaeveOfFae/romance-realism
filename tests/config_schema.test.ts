@@ -61,3 +61,20 @@ test("normalizeConfig: clamps prompt injection fields", () => {
     assert.equal(normalized.prompt_injection_max_parts, 6);
     assert.equal(normalized.prompt_injection_max_chars, 100);
 });
+
+test("normalizeConfig: clamps unresolved beat fields", () => {
+    const normalized = normalizeConfig({
+        scene_unresolved_beats_enabled: 0,
+        note_unresolved_beats: 0,
+        unresolved_beats_max_history: 999,
+        unresolved_beats_snippet_max_chars: 1,
+        tune_unresolved_beat_score_threshold: 999,
+        tune_unresolved_beat_cooldown_turns: -999,
+    });
+    assert.equal(normalized.scene_unresolved_beats_enabled, false);
+    assert.equal(normalized.note_unresolved_beats, false);
+    assert.equal(normalized.unresolved_beats_max_history, 20);
+    assert.equal(normalized.unresolved_beats_snippet_max_chars, 40);
+    assert.equal(normalized.tune_unresolved_beat_score_threshold, 20);
+    assert.equal(normalized.tune_unresolved_beat_cooldown_turns, 0);
+});

@@ -24,8 +24,14 @@ This project is intentionally split into:
 5. Update docs.
    - Add a short bullet to `README.md` if the detector is user-facing.
 
+## Scene state vs. reminders
+
+- Scene state (like `scene.unresolvedBeats`) is **reference** data stored in `chatState`.
+- Reminders are emitted as scored candidates and then:
+  - merged into a stage UI note, and/or
+  - queued one-shot into the next `systemMessage` when prompt injection is enabled.
+
 ## Debugging
 
 - Set `ui_debug_scoring: 1` to expose scored candidates in the in-iframe “Explain scoring” panel.
 - Candidate `debug` fields should be JSON-serializable where possible.
-

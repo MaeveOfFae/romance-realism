@@ -73,6 +73,15 @@ Notes (per-detector toggles):
 - `note_silence` (default `true`)
 - `note_drift` (default `true`)
 - `note_scar_recall` (default `true`)
+- `note_unresolved_beats` (default `true`) — remind when an unresolved beat exists and the scene is softening/escalating.
+
+Story beats:
+
+- `scene_unresolved_beats_enabled` (default `true`) — track unresolved beats in scene state.
+- `unresolved_beats_max_history` — 0–20 (default `10`); max stored beat snippets.
+- `unresolved_beats_snippet_max_chars` — 40–240 (default `160`); max chars per snippet.
+- `tune_unresolved_beat_score_threshold` — `null` (strictness default) or 1–20; reminder sensitivity.
+- `tune_unresolved_beat_cooldown_turns` — `null` (strictness default) or 0–50; minimum turns between reminders for the same beat.
 
 Tuning:
 

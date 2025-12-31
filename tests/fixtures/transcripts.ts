@@ -39,4 +39,11 @@ export const transcripts: Record<string, Transcript> = {
             "...",
         ],
     },
+    unresolved_beats_reminder: {
+        name: "unresolved_beats_reminder",
+        botTurns: [
+            "An awkward silence lingers between them, unfinished and unspoken.",
+            "Later, he smiles softly and kisses you on the lips.",
+        ],
+    },
 };

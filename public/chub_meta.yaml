@@ -100,6 +100,46 @@ config_schema:
       maximum: 4000
       default: 900
       description: "Max characters for the injected system prompt."
+    scene_unresolved_beats_enabled:
+      type: integer
+      minimum: 0
+      maximum: 1
+      default: 1
+      description: "Track unresolved beats (unfinished tension / unspoken conflict) in scene state."
+    note_unresolved_beats:
+      type: integer
+      minimum: 0
+      maximum: 1
+      default: 1
+      description: "Emit reminders when an unresolved beat exists and the scene is softening/escalating."
+    unresolved_beats_max_history:
+      type: integer
+      minimum: 0
+      maximum: 20
+      default: 10
+      description: "Max unresolved beat snippets retained in scene state."
+    unresolved_beats_snippet_max_chars:
+      type: integer
+      minimum: 40
+      maximum: 240
+      default: 160
+      description: "Max characters per unresolved beat snippet."
+    tune_unresolved_beat_score_threshold:
+      anyOf:
+        - type: integer
+          minimum: 1
+          maximum: 20
+        - type: "null"
+      default: null
+      description: "Override unresolved-beat reminder score threshold (null = strictness default)."
+    tune_unresolved_beat_cooldown_turns:
+      anyOf:
+        - type: integer
+          minimum: 0
+          maximum: 50
+        - type: "null"
+      default: null
+      description: "Override unresolved-beat reminder cooldown in turns (null = strictness default)."
     ui_debug_scoring:
       type: integer
       minimum: 0
