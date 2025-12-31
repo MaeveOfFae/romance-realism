@@ -31,6 +31,8 @@ Notes stay in the stage UI; nothing is injected into the chat transcript, and pr
 - `src/DeveloperUI.tsx` — read-only overlay (dev only).
 - `src/Playground.tsx` — interactive showcase for the heuristics.
 - `public/chub_meta.yaml` — stage metadata.
+- `docs/DETECTORS.md` — how to add detectors.
+- `CONTRIBUTING.md` — contributor workflow and commands.
 - `tests/*.test.ts` — unit tests compiled to `.test-dist/` by `yarn test`.
 
 ## Configuration
@@ -95,11 +97,17 @@ yarn install
 # Dev mode (TestRunner + Playground)
 yarn dev
 
+# Lint
+yarn lint
+
 # Type-check
 yarn tsc --noEmit
 
 # Run tests (compile to .test-dist then run node:test)
 yarn test
+
+# Run tests (CI-style; uses cached .test-dist when available)
+yarn test:ci
 
 # Production build
 yarn build

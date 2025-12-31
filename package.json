@@ -14,6 +14,9 @@
     "build": "tsc && vite build",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "test": "rm -rf .test-dist && tsc -p tsconfig.test.json && node --loader ./tests/extensionless-loader.mjs --test .test-dist/tests/*.test.js",
+    "test:ci": "tsc -p tsconfig.test.json --incremental --tsBuildInfoFile .test-dist/.tsbuildinfo && node --loader ./tests/extensionless-loader.mjs --test $(node ./scripts/list-compiled-tests.mjs --space)",
+    "verify:meta": "node ./scripts/verify-meta.mjs",
+    "verify:lib-dist": "node ./scripts/verify-lib-dist.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

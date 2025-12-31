@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node:
+          - '20.x' # LTS
+          - '21.7.1'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: yarn
+          cache-dependency-path: yarn.lock
+
+      - name: Cache .test-dist
+        uses: actions/cache@v4
+        with:
+          path: .test-dist
+          key: ${{ runner.os }}-node-${{ matrix.node }}-test-dist-${{ hashFiles('yarn.lock', 'tsconfig.test.json', 'tests/**', 'src/**') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ matrix.node }}-test-dist-
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Lint
+        run: yarn lint
+
+      - name: Type-check
+        run: yarn tsc --noEmit
+
+      - name: Unit + functional tests
+        run: yarn test:ci
+
+      - name: Build stage
+        run: yarn build
+
+      - name: Verify stage metadata copied to dist
+        run: yarn verify:meta
+
+      - name: Build library (types + exports)
+        run: yarn build --mode lib
+
+      - name: Verify library dist exports
+        run: yarn verify:lib-dist

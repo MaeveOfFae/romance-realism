@@ -4,8 +4,11 @@
     "noEmit": false,
     "outDir": ".test-dist",
     "rootDir": ".",
-    "types": ["node"]
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "@chub-ai/stages-ts": ["tests/shims/chub-stages-ts.ts"]
+    }
   },
   "include": ["src", "tests"]
 }
-

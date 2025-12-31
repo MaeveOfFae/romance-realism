@@ -17,12 +17,6 @@ function countMatches(text: string, re: RegExp): number {
     return m ? m.length : 0;
 }
 
-function scoreFromPatterns(text: string, patterns: RegExp[], weight: number = 1): number {
-    let score = 0;
-    for (const re of patterns) if (re.test(text)) score += weight;
-    return score;
-}
-
 type WeightedHit = {label: string; weight: number};
 
 function stripQuotedDialogue(text: string): string {
@@ -45,7 +39,7 @@ function isNegatedAt(text: string, matchIndex: number, windowChars: number = 24)
     const start = Math.max(0, matchIndex - windowChars);
     const prefix = text.slice(start, matchIndex);
     // If there's a hard boundary punctuation close-by, treat as not negating this match.
-    if (/[.!?]/.test(prefix)) return false;
+    if (/[.!?;,]/.test(prefix)) return false;
     return /\b(?:not|never|no|hardly|scarcely|without|isn'?t|aren'?t|don'?t|didn'?t|won'?t|can'?t|couldn'?t)\b/i.test(prefix);
 }
 
@@ -270,7 +264,7 @@ export function detectEscalationSignals(content: string, snapshot: EmotionSnapsh
         pushUnique({type: 'physical_closeness', suggestedPhase: 'Charged', text: t.slice(0, 200), weight: 1});
     }
 
-    if (hasAffirmedMatch(t, /\b(kiss(?:es|ed|ing)? on the lips|making love|have sex|sex\b|intercourse|nude|strip(?:s|ped|ping)?|undress(?:es|ed)?|moan(?:s|ed|ing)?|orgasm)\b/i)) {
+    if (hasAffirmedMatch(t, /\b(kiss(?:es|ed|ing)?(?:\s+(?:you|me|him|her|them))?\s+on the lips|making love|have sex|sex\b|intercourse|nude|strip(?:s|ped|ping)?|undress(?:es|ed)?|moan(?:s|ed|ing)?|orgasm)\b/i)) {
         pushUnique({type: 'physical_intimacy', suggestedPhase: 'Intimate', text: t.slice(0, 200), weight: 3});
     }
 

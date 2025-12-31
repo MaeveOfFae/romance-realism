@@ -6,6 +6,15 @@
  */
 
 export async function resolve(specifier, context, nextResolve) {
+  // @chub-ai/stages-ts currently ships ESM in a CJS-shaped package, which breaks Node's loader in tests.
+  // Redirect it to a local shim compiled into `.test-dist/`.
+  if (specifier === "@chub-ai/stages-ts") {
+    return {
+      url: new URL("../.test-dist/tests/shims/chub-stages-ts.js", import.meta.url).href,
+      shortCircuit: true,
+    };
+  }
+
   try {
     return await nextResolve(specifier, context);
   } catch (err) {
@@ -19,4 +28,3 @@ export async function resolve(specifier, context, nextResolve) {
     throw err;
   }
 }
-

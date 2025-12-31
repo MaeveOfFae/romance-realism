@@ -1,7 +1,7 @@
 import React, {useEffect, useMemo, useRef, useState, type ReactElement} from "react";
 import {createPortal} from "react-dom";
-import {StageBase, StageResponse, InitialData, Message} from "@chub-ai/stages-ts";
-import {LoadResponse} from "@chub-ai/stages-ts/dist/types/load";
+import {StageBase, type StageResponse, type InitialData, type Message} from "@chub-ai/stages-ts";
+import type {LoadResponse} from "@chub-ai/stages-ts/dist/types/load";
 import {DEFAULT_CONFIG, normalizeConfig, NormalizedConfig, type ConfigSchema} from "./config_schema";
 import {
     detectConsentIssues,
@@ -243,6 +243,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
                     if (summary) parts.push(`Scene: ${summary}`);
                 }
                 for (const p of this.myInternalState.pendingPromptNotes.parts) parts.push(`- ${p}`);
+                parts.push("END INTERNAL REALISM NOTES");
                 const maxChars = typeof effectiveConfig.prompt_injection_max_chars === 'number'
                     ? effectiveConfig.prompt_injection_max_chars
                     : 900;
@@ -619,6 +620,20 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
                 selectedIds: selectedForUi.map((c) => c.id),
                 selectedPromptIds: selectedForPrompt.map((c) => c.id),
             };
+            try {
+                console.debug("[romance-realism] scoring", {
+                    turnIndex,
+                    strictness: strictnessLevel,
+                    allowedNotesPer20,
+                    recentNonCriticalNotesInWindow: recentQuotaNotes.length,
+                    canEmitNonCriticalNote,
+                    selectedUiIds: selectedForUi.map((c) => c.id),
+                    selectedPromptIds: selectedForPrompt.map((c) => c.id),
+                    candidateIds: candidates.map((c) => c.id),
+                });
+            } catch {
+                // ignore logging failures
+            }
         } else {
             this.myInternalState.lastUiDebug = null;
         }
