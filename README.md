@@ -18,7 +18,8 @@ Background-only guardrails for slow-burn romance roleplay. The Stage runs beside
 
 ## Highlights
 
-- Scene carryover capture and prompt summary — completed
+- Scene carryover capture and compact summaries — completed
+- Optional one-shot system-prompt injection (never written into chat transcript) — completed
 Notes stay in the stage UI; nothing is injected into the chat transcript, and prompt injection (when enabled) is system-prompt-only and one-shot.
 
 ## Project layout
@@ -137,16 +138,6 @@ Estimated completeness: core feature set implemented ~95% — remaining work is 
 - `tests/*.test.ts` — unit tests (compiled to `.test-dist/` by `yarn test`).
 - `tsconfig.test.json` — TypeScript config for compiling tests to `.test-dist/`.
 
-## Config
-
-The stage accepts a small, null-safe config object. Missing values fall back to defaults.
-
-- `enabled` (boolean) — default `true`. Toggle the pack on/off.
-- `strictness` (integer, 1–3) — default `2`. Controls note frequency/throttling and some detector windows (use `3` to show more UI notes; `1–2` are intentionally quiet).
-- `memory_depth` (integer, 5–30) — default `15`. Caps the size of the memory scars log.
-
-Use `normalizeConfig` from `src/config_schema.ts` when reading config to ensure values are clamped and safe.
-
 ## Developer notes & change summary
 
 The Stage does not inject system messages into the chat log. Guidance is shown inside the stage UI, and (when enabled) injected one-shot into the next system prompt only.
@@ -154,14 +145,14 @@ The Stage does not inject system messages into the chat log. Guidance is shown i
 Key lifecycle wiring:
 
 - `load()` initializes the stage and returns `success: true`.
-- `beforePrompt()` may record a concise scene summary as a stage UI note when scene context exists.
-- `afterResponse()` performs all analyses and augments message-level state (`messageState`) and may add a stage UI note.
+- `beforePrompt()` may record a concise scene summary (UI) and may inject queued notes into the next system prompt (one-shot).
+- `afterResponse()` performs all analyses, augments message-level state (`messageState`), emits UI notes, and queues prompt injection notes.
 - `setState()` restores persisted message-level state on branch navigation.
 
 Recent changes (high level):
 
 - Added robust, typed config normalization to `src/config_schema.ts`.
-- Implemented emotion snapshot extraction and delta evaluation (now in `src/analysis_helpers.ts`).
+- Implemented weighted, negation-aware emotion snapshot extraction and delta evaluation (now in `src/analysis_helpers.ts`).
 - Implemented scene capture & summarization.
 - Implemented phase tracking and escalation signals with warnings.
 - Implemented proximity gating and skipped-step warnings.
@@ -169,6 +160,7 @@ Recent changes (high level):
 - Implemented structured memory scar logging and a single recall mechanism.
 - Implemented subtext extraction and silence/pause interpreter.
 - Implemented relationship drift detection with strictness-based throttling.
+- Added one-shot system-prompt injection (configurable; never written into chat transcript).
 - Added a read-only developer overlay (toggle in dev runner settings).
 - Added unit tests and a `yarn test` script (Node `node:test`, compiled to `.test-dist/`).
 
