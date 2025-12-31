@@ -206,7 +206,8 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
             // Scene Carryover Anchor: attach concise system summary when scene is present
             const currentChatState: ChatStateType | null = (this as any)._chatState || null;
             // Notes should only render inside the stage UI (never injected into chat messages).
-            if (strictnessLevel >= 3 && currentChatState && currentChatState.scene) {
+            this.myInternalState.lastBeforePromptAt = Date.now();
+            if (strictnessLevel >= 2 && currentChatState && currentChatState.scene) {
                 const summary = summarizeScene(currentChatState.scene);
                 if (summary) {
                     const note = `Scene summary: ${summary}`;
@@ -266,14 +267,15 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
             }
             const turnIndex = (this.myInternalState.turnIndex || 0) + 1;
             this.myInternalState.turnIndex = turnIndex;
+            this.myInternalState.lastAfterResponseAt = Date.now();
 
         // Global system note throttle to prevent "catching" every bot message with annotations.
         const systemNoteHistory: number[] = Array.isArray((this.myInternalState as any).systemNoteHistory)
             ? (this.myInternalState as any).systemNoteHistory
             : [];
         const recentSystemNotes = systemNoteHistory.filter((idx) => idx > turnIndex - 20);
-        const allowedSystemNotesPer20 = ({1: 0, 2: 0, 3: 6} as Record<number, number>)[strictnessLevel] ?? 0;
-        const canEmitNonCriticalSystemMessage = strictnessLevel >= 3 && recentSystemNotes.length < allowedSystemNotesPer20;
+        const allowedUiNotesPer20 = ({1: 0, 2: 2, 3: 6} as Record<number, number>)[strictnessLevel] ?? 0;
+        const canEmitUiNote = recentSystemNotes.length < allowedUiNotesPer20;
         let criticalSystemNote = false;
 
         // Run lightweight analysis hooks (placeholders) that will be expanded later.
@@ -355,7 +357,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         // Emotional delta evaluation: detect whiplash and optionally attach a user-visible system note.
         let uiNote: string | null = null;
         const delta = evaluateEmotionalDelta(snapshot, priorEmotions);
-        if (delta.detected && effectiveConfig.enabled && canEmitNonCriticalSystemMessage) {
+        if (delta.detected && effectiveConfig.enabled && strictnessLevel >= 2 && canEmitUiNote) {
             // annotation frequency control: strictness 1..3 -> allowed annotations per window
             const allowedByStrictness = ({1: 1, 2: 2, 3: 3} as Record<number, number>)[strictnessLevel] || 2;
             this.myInternalState.lastAnnotations = this.myInternalState.lastAnnotations || [];
@@ -373,11 +375,11 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         this.myInternalState.lastEmotions = priorEmotions.concat(snapshot).slice(-5);
 
         // Merge escalation warning into systemMessage (do not overwrite existing note if present)
-        if (escalationWarning && (canEmitNonCriticalSystemMessage || criticalSystemNote || uiNote != null)) {
+        if (escalationWarning && (canEmitUiNote || criticalSystemNote || uiNote != null)) {
             uiNote = uiNote ? `${uiNote} — ${escalationWarning}` : escalationWarning;
         }
 
-        if (proximityWarning && (canEmitNonCriticalSystemMessage || criticalSystemNote || uiNote != null)) {
+        if (proximityWarning && (canEmitUiNote || criticalSystemNote || uiNote != null)) {
             uiNote = uiNote ? `${uiNote} — ${proximityWarning}` : proximityWarning;
         }
 
@@ -390,7 +392,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         }
 
         // Subtext highlights (hesitation, avoidance, guarded interest, fear of rejection)
-        if (strictnessLevel >= 2 && (canEmitNonCriticalSystemMessage || criticalSystemNote || uiNote != null)) {
+        if (strictnessLevel >= 2 && (canEmitUiNote || criticalSystemNote || uiNote != null)) {
             const subtextNotes = detectSubtext(content);
             if (subtextNotes.length > 0) {
                 const note = `Subtext: ${subtextNotes.join('; ')}`;
@@ -399,7 +401,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         }
 
         // Silence & pause interpreter
-        if (strictnessLevel >= 3 && (canEmitNonCriticalSystemMessage || criticalSystemNote || uiNote != null)) {
+        if (strictnessLevel >= 3 && (canEmitUiNote || criticalSystemNote || uiNote != null)) {
             const silenceNote = detectSilenceOrPause(content);
             if (silenceNote) {
                 this.myInternalState.silenceHistory = (this.myInternalState.silenceHistory || []).concat([Date.now()]).slice(-50);
@@ -408,7 +410,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         }
 
         // Relationship drift detector
-        if (strictnessLevel >= 3 && (canEmitNonCriticalSystemMessage || criticalSystemNote || uiNote != null)) {
+        if (strictnessLevel >= 3 && (canEmitUiNote || criticalSystemNote || uiNote != null)) {
             const driftNote = detectDrift({
                 recentEmotions: priorEmotions,
                 phaseHistory: (this.myInternalState.phaseHistory || []) as PhaseHistoryEntry[],
@@ -423,7 +425,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         }
 
         // Scar recall (avoid spamming: only recall newest scar once)
-        if (strictnessLevel >= 3 && (canEmitNonCriticalSystemMessage || criticalSystemNote || uiNote != null)) {
+        if (strictnessLevel >= 3 && (canEmitUiNote || criticalSystemNote || uiNote != null)) {
             const recall = recallMemoryScar(this.myInternalState.memoryScars || [], this.myInternalState.lastScarRecallIdx);
             if (recall.note) {
                 this.myInternalState.lastScarRecallIdx = recall.nextIdx;
@@ -496,6 +498,8 @@ function NoticeOverlay({stageRef}: {stageRef: any}) {
     }, []);
 
     const notes = (stageRef?.myInternalState?.overlayNotes as Array<{text: string; at: number}> | undefined) || [];
+    const turnIndex = stageRef?.myInternalState?.turnIndex as number | undefined;
+    const lastAfterResponseAt = stageRef?.myInternalState?.lastAfterResponseAt as number | undefined;
     const latest = useMemo(() => [...notes].slice(-5).reverse(), [notes, tick]);
     const hasNotes = latest.length > 0;
 
@@ -528,7 +532,7 @@ function NoticeOverlay({stageRef}: {stageRef: any}) {
                 aria-expanded={open}
                 aria-label="Show romance realism notes"
             >
-                {`Realism notes${hasNotes ? ` (${notes.length})` : ''}`}
+                {`Realism notes${hasNotes ? ` (${notes.length})` : ''}${typeof turnIndex === 'number' ? ` · t${turnIndex}` : ''}`}
             </button>
             {open && (
                 <div
@@ -547,6 +551,9 @@ function NoticeOverlay({stageRef}: {stageRef: any}) {
                         pointerEvents: 'auto',
                     }}
                 >
+                    <div style={{fontSize: '11px', fontWeight: 600, color: '#555', marginBottom: '8px'}}>
+                        {`Status • ${typeof turnIndex === 'number' ? `turn ${turnIndex}` : 'no turns yet'}${typeof lastAfterResponseAt === 'number' ? ` • last response ${new Date(lastAfterResponseAt).toLocaleTimeString()}` : ''}`}
+                    </div>
                     {!hasNotes && (
                         <div style={{fontSize: '12px', color: '#666'}}>
                             No notes yet. Notes will appear when the stage emits guidance.
