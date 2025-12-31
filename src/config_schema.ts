@@ -4,17 +4,23 @@
  */
 
 export type ConfigSchema = {
+    // Core
     enabled?: boolean;
     strictness?: number; // 1..3
     memory_depth?: number; // 5..30
+
+    // UI
     ui_enabled?: boolean | number;
     ui_max_notes?: number; // 1..50
     ui_show_status?: boolean | number;
     ui_show_timestamps?: boolean | number;
     max_ui_notes_per_20?: number; // -1 disables override, otherwise 0..20
+
+    // UI debug
     ui_debug_scoring?: boolean | number;
     ui_debug_max_candidates?: number; // 1..50
 
+    // Note toggles
     note_scene_summary?: boolean | number;
     note_emotion_delta?: boolean | number;
     note_phase?: boolean | number;
@@ -25,6 +31,7 @@ export type ConfigSchema = {
     note_drift?: boolean | number;
     note_scar_recall?: boolean | number;
 
+    // Tuning overrides (null/undefined uses strictness defaults)
     tune_phase_weight_threshold?: number; // null/undefined -> strictness defaults, otherwise 1..20
     tune_delta_score_threshold?: number; // null/undefined -> strictness defaults, otherwise 0..20
     tune_ui_note_parts?: number; // null/undefined -> strictness defaults, otherwise 1..6
@@ -35,6 +42,7 @@ export type ConfigSchema = {
 export type NormalizedConfig = Omit<ConfigSchema, 'enabled' | 'strictness' | 'memory_depth'
     | 'ui_enabled' | 'ui_max_notes' | 'ui_show_status' | 'ui_show_timestamps' | 'max_ui_notes_per_20'
     | 'ui_debug_scoring' | 'ui_debug_max_candidates'
+    | 'tune_phase_weight_threshold' | 'tune_delta_score_threshold' | 'tune_ui_note_parts'
     | 'note_scene_summary' | 'note_emotion_delta' | 'note_phase' | 'note_proximity' | 'note_consent'
     | 'note_subtext' | 'note_silence' | 'note_drift' | 'note_scar_recall'> & {
     enabled: boolean;

@@ -36,14 +36,44 @@ Notes stay in the stage UI; nothing is injected into the chat transcript or used
 
 Always run configs through `normalizeConfig`:
 
+Booleans accept `true/false` (or `0/1`).
+
+Core:
+
 - `enabled` — boolean (default `true`).
 - `strictness` — 1–3 (default `2`); throttles how chatty notes are (`3` is most visible).
 - `memory_depth` — 5–30 (default `15`); cap for the memory-scar log.
-- `ui_debug_scoring` — boolean (default `false`); enables an “Explain scoring” debug view in the in-iframe notes UI.
-- `ui_debug_max_candidates` — 1–50 (default `12`); max candidates shown in the debug view.
-- `tune_phase_weight_threshold` — 1–20; override weighted phase threshold (otherwise strictness defaults apply).
-- `tune_delta_score_threshold` — 0–20; override whiplash score threshold (otherwise strictness defaults apply).
-- `tune_ui_note_parts` — 1–6; override how many note parts can be merged into one UI note.
+
+UI:
+
+- `ui_enabled` — boolean (default `true`); show the in-iframe notes UI.
+- `ui_max_notes` — 1–50 (default `10`); max notes kept in the feed.
+- `ui_show_status` — boolean (default `true`); show turn/time status header.
+- `ui_show_timestamps` — boolean (default `true`); show timestamps per note.
+- `max_ui_notes_per_20` — `-1` (auto) or 0–20; override strictness UI quota per ~20 turns.
+- `tune_ui_note_parts` — `null` (strictness default) or 1–6; max merged note parts per emitted note.
+
+Notes (per-detector toggles):
+
+- `note_scene_summary` (default `true`)
+- `note_emotion_delta` (default `true`)
+- `note_phase` (default `true`)
+- `note_proximity` (default `true`)
+- `note_consent` (default `true`)
+- `note_subtext` (default `true`)
+- `note_silence` (default `true`)
+- `note_drift` (default `true`)
+- `note_scar_recall` (default `true`)
+
+Tuning:
+
+- `tune_phase_weight_threshold` — `null` (strictness default) or 1–20; override weighted phase threshold.
+- `tune_delta_score_threshold` — `null` (strictness default) or 0–20; override whiplash score threshold.
+
+Debug:
+
+- `ui_debug_scoring` — boolean (default `false`); enables “Explain scoring” in the notes UI.
+- `ui_debug_max_candidates` — 1–50 (default `12`); candidate rows shown in the debug panel.
 
 ## Requirements
 

@@ -70,51 +70,96 @@ config_schema:
       maximum: 20
       default: -1
       description: "Override strictness throttle (max UI notes per ~20 turns). Use -1 for auto."
+    ui_debug_scoring:
+      type: integer
+      minimum: 0
+      maximum: 1
+      default: 0
+      description: "Show an 'Explain scoring' panel in the notes UI (dev/tuning aid)."
+    ui_debug_max_candidates:
+      type: integer
+      minimum: 1
+      maximum: 50
+      default: 12
+      description: "Max scored candidates shown in the debug panel."
     note_scene_summary:
       type: integer
       minimum: 0
       maximum: 1
       default: 1
+      description: "Emit a compact scene summary note before prompts (when scene state exists)."
     note_emotion_delta:
       type: integer
       minimum: 0
       maximum: 1
       default: 1
+      description: "Emit emotional whiplash notes (abrupt tone/intensity deltas)."
     note_phase:
       type: integer
       minimum: 0
       maximum: 1
       default: 1
+      description: "Track relationship phase and warn when it seems to jump ahead."
     note_proximity:
       type: integer
       minimum: 0
       maximum: 1
       default: 1
+      description: "Track proximity and warn on skipped setup (Distant → Touching/Intimate, etc.)."
     note_consent:
       type: integer
       minimum: 0
       maximum: 1
       default: 1
+      description: "Flag consent/agency issues (forced actions, internal monologue assignment, etc.)."
     note_subtext:
       type: integer
       minimum: 0
       maximum: 1
       default: 1
+      description: "Emit subtext notes (hesitation, avoidance, guarded interest, fear of rejection)."
     note_silence:
       type: integer
       minimum: 0
       maximum: 1
       default: 1
+      description: "Interpret silence/pause/non-committal replies and optionally emit a note."
     note_drift:
       type: integer
       minimum: 0
       maximum: 1
       default: 1
+      description: "Detect stagnation in phase/emotion and suggest gentle narrative pressure."
     note_scar_recall:
       type: integer
       minimum: 0
       maximum: 1
       default: 1
+      description: "Occasionally recall the most recent memory scar as a continuity nudge."
+    tune_phase_weight_threshold:
+      anyOf:
+        - type: integer
+          minimum: 1
+          maximum: 20
+        - type: "null"
+      default: null
+      description: "Override phase advancement weight threshold (null = strictness default)."
+    tune_delta_score_threshold:
+      anyOf:
+        - type: integer
+          minimum: 0
+          maximum: 20
+        - type: "null"
+      default: null
+      description: "Override emotion-delta (whiplash) score threshold (null = strictness default)."
+    tune_ui_note_parts:
+      anyOf:
+        - type: integer
+          minimum: 1
+          maximum: 6
+        - type: "null"
+      default: null
+      description: "Override max merged note parts in one UI note (null = strictness default)."
   additionalProperties: true
 
 # The schema of the state that you store.

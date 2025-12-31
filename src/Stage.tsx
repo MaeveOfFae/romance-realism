@@ -2,7 +2,7 @@ import React, {useEffect, useMemo, useRef, useState, type ReactElement} from "re
 import {createPortal} from "react-dom";
 import {StageBase, StageResponse, InitialData, Message} from "@chub-ai/stages-ts";
 import {LoadResponse} from "@chub-ai/stages-ts/dist/types/load";
-import {DEFAULT_CONFIG, normalizeConfig, NormalizedConfig} from "./config_schema";
+import {DEFAULT_CONFIG, normalizeConfig, NormalizedConfig, type ConfigSchema} from "./config_schema";
 import {
     detectConsentIssues,
     detectDrift,
@@ -56,12 +56,8 @@ type MessageStateType = {
  @description This is for things you want people to be able to configure,
   like background color.
  ***/
-type ConfigType = {
-    enabled?: boolean;
-    strictness?: number; // 1..3
-    memory_depth?: number; // 5..30
-    [key: string]: any;
-};
+// Use the shared schema type so all config fields are visible in TS.
+type ConfigType = ConfigSchema;
 
 /***
  The type that this stage persists chat initialization state in.
