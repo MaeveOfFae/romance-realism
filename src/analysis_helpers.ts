@@ -123,10 +123,14 @@ export function scoreEmotionSnapshot(text: string): {
     };
 
     const sadness = toneScore("sad", [
-        {label: "sad_words", re: /\b(sad|sorrow|tear(?:s|ful)?|cry(?:ing)?|sob(?:bing)?|regret(?:s|ted)?|heartbroken|grief|mourn(?:s|ing)?)\b/i, weight: 2},
+        // Avoid common false positives:
+        // - "tear your gaze away" (tear as a verb) should not count as sadness
+        // - "regret nothing" should not count as sadness
+        {label: "sad_words", re: /\b(sad|sorrow|tearful|teary|cry(?:ing)?|sob(?:bing)?|regret(?:s|ted)?(?!\s+(?:nothing|none)\b)|heartbroken|grief|mourn(?:s|ing)?)\b/i, weight: 2},
+        {label: "tears_noun", re: /\b(?:his|her|their|my|your|the)\s+tears\b|\btears?\s+(?:well(?:s|ing)?\s+up|spill(?:s|ing)?|stream(?:s|ing)?|roll(?:s|ing)?(?:\s+down)?|fall(?:s|ing)?|in\s+(?:his|her|their|my|your)\s+eyes)\b/i, weight: 2},
         {label: "apology", re: /\b(apolog(?:y|ize|ise)|sorry)\b/i, weight: 1},
         {label: "hurt", re: /\b(hurt|aching|broken|heavy in (?:his|her|their|your) chest)\b/i, weight: 1},
-        {label: "sigh", re: /\b(sighs?|voice cracks?|wipes? (?:a|his|her|their) tears?)\b/i, weight: 1},
+        {label: "tears_voice", re: /\b(voice cracks?|wipes? (?:a|his|her|their) tears?)\b/i, weight: 2},
     ]);
 
     const anger = toneScore("angry", [
@@ -145,8 +149,8 @@ export function scoreEmotionSnapshot(text: string): {
     const affection = toneScore("affection", [
         {label: "love_words", re: /\b(love|adore|cherish|treasure|fond)\b/i, weight: 2},
         {label: "care_miss", re: /\b(miss you|care about you)\b/i, weight: 2},
-        {label: "tender", re: /\b(affectionately|tenderly|softly|warmly|gentle|with a soft smile)\b/i, weight: 1},
-        {label: "smile", re: /\b(smiles?|grins?)\b/i, weight: 1},
+        {label: "tender", re: /\b(affectionately|tenderly|tender|affectionate|gentle|with a soft smile|smiles? softly|softly (?:says|whispers?|murmurs?)|warmly (?:smiles?|greets?))\b/i, weight: 1},
+        {label: "smile", re: /\b(smile(?:s|d|ing)?|grin(?:s|ned|ning)?)\b/i, weight: 1},
     ]);
 
     const embarrassment = toneScore("embarrassed", [
@@ -169,16 +173,30 @@ export function scoreEmotionSnapshot(text: string): {
         {label: "tense_words", re: /\b(tense|awkward|stiff|rigid|strained|uneasy)\b/i, weight: 2},
         {label: "silence", re: /\b(an awkward silence|a beat of silence)\b/i, weight: 1},
         {label: "hesitation", re: /\b(pauses?|hesitates?|swallows?)\b/i, weight: 1},
+        {label: "sigh", re: /\b(sighs?|exhales?|lets out (?:a|an) (?:slow )?breath)\b/i, weight: 1},
     ]);
 
     const toneScores = [affection, anger, anxiety, sadness, embarrassment, jealousy, excitement, tense]
         .sort((a, b) => b.score - a.score);
 
     const best = toneScores[0];
-    const tone = best && best.score > 0 ? best.tone : "neutral";
+    const bestTone = best && best.score > 0 ? best.tone : "neutral";
+    const minScoreByTone: Record<string, number> = {
+        sad: 2,
+        angry: 2,
+        anxious: 2,
+        embarrassed: 2,
+        jealous: 2,
+        excited: 2,
+        affection: 1,
+        tense: 1,
+    };
+    const minScore = minScoreByTone[bestTone] ?? 1;
+    const tone = best && best.score >= minScore ? bestTone : "neutral";
 
-    // Preserve original behavior: explicit sadness/affection keywords imply at least medium intensity.
-    const forcedMedium = tone === "sad" || tone === "affection";
+    // Preserve original behavior: *explicit* sadness/affection keywords imply at least medium intensity.
+    const forceMediumLabels = new Set<string>(["sad_words", "love_words", "care_miss"]);
+    const forcedMedium = (tone === "sad" || tone === "affection") && best && best.reasons.some((r) => forceMediumLabels.has(r.label));
     const adjustedIntensity: EmotionIntensity = forcedMedium && intensity === "low" ? "medium" : intensity;
 
     return {snapshot: {tone, intensity: adjustedIntensity}, toneScores};
@@ -669,8 +687,15 @@ export function updateSceneFromMessage(prev: SceneState | null | undefined, cont
     const narrative = stripQuotedDialogue(t);
     const locMatch = narrative.match(/\b(?:at|in|inside|into|on|by)\s+(?:the|a|an|my|your|his|her|their)\s+([A-Za-z0-9'’\- ]{3,60})\b/i);
     if (locMatch) {
-        const candidate = locMatch[1].trim();
+        let candidate = locMatch[1].trim();
+        // If the captured phrase includes a verb ("the air feels tense"), trim to the noun phrase head.
+        const verbish = /\b(?:feels?|seems?|looks?|sounds?|is|are|was|were|become(?:s)?|remain(?:s)?|lingers?)\b/i.exec(candidate);
+        if (verbish && typeof verbish.index === "number" && verbish.index > 0) {
+            candidate = candidate.slice(0, verbish.index).trim();
+        }
+
         const normalized = candidate.toLowerCase().replace(/\s+/g, " ").trim();
+        const head = (normalized.split(" ").filter(Boolean).slice(-1)[0] || normalized).trim();
         const stop = new Set([
             "end",
             "beginning",
@@ -680,9 +705,33 @@ export function updateSceneFromMessage(prev: SceneState | null | undefined, cont
             "world",
             "way",
             "time",
+            "air",
+            "silence",
+            "distance",
+            "space",
+            "warmth",
+            "tension",
+            "shadow",
+            "darkness",
+            "lightness",
             "arms",
             "hands",
             "lap",
+            "eyes",
+            "gaze",
+            "voice",
+            "breath",
+            "chest",
+            "heart",
+            "mind",
+            "head",
+            "face",
+            "lips",
+            "mouth",
+            "throat",
+            "skin",
+            "hair",
+            "cheeks",
             "morning",
             "afternoon",
             "evening",
@@ -690,7 +739,12 @@ export function updateSceneFromMessage(prev: SceneState | null | undefined, cont
             "dark",
             "light",
         ]);
-        if (!stop.has(normalized) && !/^(end|the end|the beginning|the moment|the meantime)$/.test(normalized)) {
+        if (
+            normalized.length > 0 &&
+            !stop.has(normalized) &&
+            !stop.has(head) &&
+            !/^(end|the end|the beginning|the moment|the meantime)$/.test(normalized)
+        ) {
             scene.location = candidate;
         }
     }

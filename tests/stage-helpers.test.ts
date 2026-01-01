@@ -26,6 +26,16 @@ test("extractEmotionSnapshot: negation avoids angry classification", () => {
     assert.notEqual(snapshot.tone, "angry");
 });
 
+test("extractEmotionSnapshot: 'tear' verb does not imply sadness", () => {
+    const snapshot = extractEmotionSnapshot("He tears his gaze away.");
+    assert.notEqual(snapshot.tone, "sad");
+});
+
+test("extractEmotionSnapshot: 'regret nothing' does not imply sadness", () => {
+    const snapshot = extractEmotionSnapshot("I regret nothing.");
+    assert.notEqual(snapshot.tone, "sad");
+});
+
 test("extractEmotionSnapshot: affection keyword -> affection/medium", () => {
     const snapshot = extractEmotionSnapshot("I love you");
     assert.deepEqual(snapshot, {tone: "affection", intensity: "medium"});
@@ -79,6 +89,17 @@ test("extractEmotionSnapshot: detects high intensity cues", () => {
     const snapshot = extractEmotionSnapshot("I love you!!! I'm shaking.");
     assert.equal(snapshot.tone, "affection");
     assert.equal(snapshot.intensity, "high");
+});
+
+test("extractEmotionSnapshot: sigh defaults to tense, not sad", () => {
+    const snapshot = extractEmotionSnapshot("He sighs.");
+    assert.equal(snapshot.tone, "tense");
+    assert.equal(snapshot.intensity, "low");
+});
+
+test("extractEmotionSnapshot: smile alone stays low intensity", () => {
+    const snapshot = extractEmotionSnapshot("He smiles.");
+    assert.deepEqual(snapshot, {tone: "affection", intensity: "low"});
 });
 
 test("evaluateProximityTransition: detects skipped steps", () => {
@@ -149,6 +170,24 @@ test("updateSceneFromMessage: detects time-of-day variants", () => {
 test("updateSceneFromMessage: avoids vague location extraction", () => {
     const scene = updateSceneFromMessage(null, "In the end, you both leave.", {tone: "neutral", intensity: "low"});
     assert.equal(scene.location ?? null, null);
+});
+
+test("updateSceneFromMessage: ignores body parts as location", () => {
+    const scene1 = updateSceneFromMessage(null, "Warmth flickers in his eyes.", {tone: "neutral", intensity: "low"});
+    assert.equal(scene1.location ?? null, null);
+
+    const scene2 = updateSceneFromMessage(null, "A tremor lingers in her voice.", {tone: "neutral", intensity: "low"});
+    assert.equal(scene2.location ?? null, null);
+});
+
+test("updateSceneFromMessage: trims verbish 'the air feels tense' captures", () => {
+    const scene = updateSceneFromMessage(null, "In the air feels tense tonight.", {tone: "neutral", intensity: "low"});
+    assert.equal(scene.location ?? null, null);
+});
+
+test("updateSceneFromMessage: keeps location when phrased as 'in the kitchen is'", () => {
+    const scene = updateSceneFromMessage(null, "In the kitchen is a small table set for two.", {tone: "neutral", intensity: "low"});
+    assert.equal(scene.location, "kitchen");
 });
 
 test("updateSceneFromMessage: does not treat 'still' alone as an unresolved beat", () => {
