@@ -36,6 +36,12 @@ test("extractEmotionSnapshot: 'regret nothing' does not imply sadness", () => {
     assert.notEqual(snapshot.tone, "sad");
 });
 
+test("extractEmotionSnapshot: extra term tuning expands coverage", () => {
+    const snapshot = extractEmotionSnapshot("He feels wistful about it.", {extraTerms: {sad: ["wistful"]}});
+    assert.equal(snapshot.tone, "sad");
+    assert.equal(snapshot.intensity, "low");
+});
+
 test("extractEmotionSnapshot: affection keyword -> affection/medium", () => {
     const snapshot = extractEmotionSnapshot("I love you");
     assert.deepEqual(snapshot, {tone: "affection", intensity: "medium"});
@@ -188,6 +194,16 @@ test("updateSceneFromMessage: trims verbish 'the air feels tense' captures", () 
 test("updateSceneFromMessage: keeps location when phrased as 'in the kitchen is'", () => {
     const scene = updateSceneFromMessage(null, "In the kitchen is a small table set for two.", {tone: "neutral", intensity: "low"});
     assert.equal(scene.location, "kitchen");
+});
+
+test("updateSceneFromMessage: tuned place heads enable safe no-article locations", () => {
+    const scene = updateSceneFromMessage(
+        null,
+        "At gazebo, they finally talk.",
+        {tone: "neutral", intensity: "low"},
+        {locationPlaceHeads: ["gazebo"]},
+    );
+    assert.equal(scene.location, "gazebo");
 });
 
 test("updateSceneFromMessage: does not treat 'still' alone as an unresolved beat", () => {

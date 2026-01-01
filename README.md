@@ -87,6 +87,9 @@ Tuning:
 
 - `tune_phase_weight_threshold` — `null` (strictness default) or 1–20; override weighted phase threshold.
 - `tune_delta_score_threshold` — `null` (strictness default) or 0–20; override whiplash score threshold.
+- `tune_emotion_extra` — object `{[tone: string]: string[]}`; adds extra negation-aware keywords/phrases per tone (e.g. `{sad: ["wistful"]}`).
+- `tune_scene_location_place_heads` — `string[]`; extra location “head” terms to recognize as places (also enables safe “at X”/“in X” without articles for those terms).
+- `tune_scene_location_stopwords` — `string[]`; extra words to ignore as locations (to reduce false positives).
 
 Debug:
 

@@ -359,7 +359,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         };
 
         // Run lightweight analysis hooks (placeholders) that will be expanded later.
-        const snapshot: EmotionSnapshot = extractEmotionSnapshot(content);
+        const snapshot: EmotionSnapshot = extractEmotionSnapshot(content, {extraTerms: effectiveConfig.tune_emotion_extra});
         const priorEmotions = (this.myInternalState.lastEmotions || []);
 
         // Memory scar system: detect key emotional events and log them
@@ -374,7 +374,15 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
 
         // Scene capture: update scene context heuristically from the bot message
         const prevChatState: ChatStateType | null = (this as any)._chatState || {scene: null};
-        const updatedScene = updateSceneFromMessage(prevChatState?.scene || null, content, snapshot);
+        const updatedScene = updateSceneFromMessage(
+            prevChatState?.scene || null,
+            content,
+            snapshot,
+            {
+                locationPlaceHeads: effectiveConfig.tune_scene_location_place_heads,
+                locationStopwords: effectiveConfig.tune_scene_location_stopwords,
+            },
+        );
         const prevBeatCount = Array.isArray(prevChatState?.scene?.unresolvedBeats) ? (prevChatState as any).scene.unresolvedBeats.length : 0;
         if (effectiveConfig.scene_unresolved_beats_enabled) {
             const maxBeats = typeof effectiveConfig.unresolved_beats_max_history === 'number'

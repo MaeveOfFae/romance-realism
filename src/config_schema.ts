@@ -53,6 +53,14 @@ export type ConfigSchema = {
     tune_delta_score_threshold?: number; // null/undefined -> strictness defaults, otherwise 0..20
     tune_ui_note_parts?: number; // null/undefined -> strictness defaults, otherwise 1..6
 
+    // Lexicon tuning (optional). These let you expand coverage without changing code.
+    // - `tune_emotion_extra`: add extra keywords/short phrases per tone (negation-aware).
+    // - `tune_scene_location_place_heads`: add extra location "head nouns" (e.g. "gazebo", "atrium").
+    // - `tune_scene_location_stopwords`: add extra location stopwords (e.g. "thoughts", "silence").
+    tune_emotion_extra?: Record<string, string[]>;
+    tune_scene_location_place_heads?: string[];
+    tune_scene_location_stopwords?: string[];
+
     [key: string]: unknown;
 };
 
@@ -63,6 +71,7 @@ export type NormalizedConfig = Omit<ConfigSchema, 'enabled' | 'strictness' | 'me
     | 'scene_unresolved_beats_enabled' | 'note_unresolved_beats' | 'unresolved_beats_max_history' | 'unresolved_beats_snippet_max_chars'
     | 'tune_unresolved_beat_score_threshold' | 'tune_unresolved_beat_cooldown_turns'
     | 'tune_phase_weight_threshold' | 'tune_delta_score_threshold' | 'tune_ui_note_parts'
+    | 'tune_emotion_extra' | 'tune_scene_location_place_heads' | 'tune_scene_location_stopwords'
     | 'note_scene_summary' | 'note_emotion_delta' | 'note_phase' | 'note_proximity' | 'note_consent'
     | 'note_subtext' | 'note_silence' | 'note_drift' | 'note_scar_recall'> & {
     enabled: boolean;
@@ -102,6 +111,10 @@ export type NormalizedConfig = Omit<ConfigSchema, 'enabled' | 'strictness' | 'me
     tune_phase_weight_threshold: number | null;
     tune_delta_score_threshold: number | null;
     tune_ui_note_parts: number | null;
+
+    tune_emotion_extra: Record<string, string[]>;
+    tune_scene_location_place_heads: string[];
+    tune_scene_location_stopwords: string[];
 };
 
 export const DEFAULT_CONFIG: NormalizedConfig = {
@@ -141,6 +154,10 @@ export const DEFAULT_CONFIG: NormalizedConfig = {
     tune_phase_weight_threshold: null,
     tune_delta_score_threshold: null,
     tune_ui_note_parts: null,
+
+    tune_emotion_extra: {},
+    tune_scene_location_place_heads: [],
+    tune_scene_location_stopwords: [],
 } as const;
 
 function clamp(n: number, min: number, max: number): number {
@@ -152,6 +169,41 @@ function asBool(v: unknown, fallback: boolean): boolean {
     if (typeof v === 'boolean') return v;
     if (typeof v === 'number' && Number.isFinite(v)) return v !== 0;
     return fallback;
+}
+
+function normalizeStringArray(v: unknown, opts?: {maxItems?: number; maxLen?: number; lower?: boolean}): string[] {
+    const maxItems = opts?.maxItems ?? 200;
+    const maxLen = opts?.maxLen ?? 48;
+    const lower = opts?.lower ?? true;
+    if (!Array.isArray(v)) return [];
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const raw of v) {
+        if (typeof raw !== 'string') continue;
+        let s = raw.trim();
+        if (!s) continue;
+        if (s.length > maxLen) s = s.slice(0, maxLen);
+        const key = (lower ? s.toLowerCase() : s);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(key);
+        if (out.length >= maxItems) break;
+    }
+    return out;
+}
+
+function normalizeStringRecordOfArrays(v: unknown, opts?: {maxKeys?: number; maxItemsPerKey?: number; maxLen?: number}): Record<string, string[]> {
+    const maxKeys = opts?.maxKeys ?? 20;
+    const maxItemsPerKey = opts?.maxItemsPerKey ?? 80;
+    const maxLen = opts?.maxLen ?? 48;
+    if (!v || typeof v !== 'object') return {};
+    const out: Record<string, string[]> = {};
+    const keys = Object.keys(v as any).slice(0, maxKeys);
+    for (const k of keys) {
+        const arr = normalizeStringArray((v as any)[k], {maxItems: maxItemsPerKey, maxLen, lower: true});
+        if (arr.length > 0) out[String(k)] = arr;
+    }
+    return out;
 }
 
 /**
@@ -232,6 +284,10 @@ export function normalizeConfig(cfg?: ConfigSchema | null): NormalizedConfig {
         ? clamp(Math.floor(src.tune_ui_note_parts), 1, 6)
         : DEFAULT_CONFIG.tune_ui_note_parts;
 
+    const tune_emotion_extra = normalizeStringRecordOfArrays((src as any).tune_emotion_extra) || DEFAULT_CONFIG.tune_emotion_extra;
+    const tune_scene_location_place_heads = normalizeStringArray((src as any).tune_scene_location_place_heads) || DEFAULT_CONFIG.tune_scene_location_place_heads;
+    const tune_scene_location_stopwords = normalizeStringArray((src as any).tune_scene_location_stopwords) || DEFAULT_CONFIG.tune_scene_location_stopwords;
+
     return {
         enabled,
         strictness,
@@ -269,6 +325,10 @@ export function normalizeConfig(cfg?: ConfigSchema | null): NormalizedConfig {
         tune_phase_weight_threshold,
         tune_delta_score_threshold,
         tune_ui_note_parts,
+
+        tune_emotion_extra,
+        tune_scene_location_place_heads,
+        tune_scene_location_stopwords,
         // preserve unknown keys but do not trust their types
         ...Object.keys(src).reduce((acc: Record<string, unknown>, k) => {
             if (![
@@ -281,6 +341,7 @@ export function normalizeConfig(cfg?: ConfigSchema | null): NormalizedConfig {
                 'note_scene_summary', 'note_emotion_delta', 'note_phase', 'note_proximity', 'note_consent',
                 'note_subtext', 'note_silence', 'note_drift', 'note_scar_recall',
                 'tune_phase_weight_threshold', 'tune_delta_score_threshold', 'tune_ui_note_parts',
+                'tune_emotion_extra', 'tune_scene_location_place_heads', 'tune_scene_location_stopwords',
             ].includes(k)) {
                 acc[k] = (src as any)[k];
             }
@@ -319,6 +380,9 @@ export function validateConfig(cfg?: ConfigSchema | null): string[] {
     if (cfg.tune_phase_weight_threshold != null && (typeof cfg.tune_phase_weight_threshold !== 'number' || !Number.isFinite(cfg.tune_phase_weight_threshold))) errors.push('`tune_phase_weight_threshold` must be a number.');
     if (cfg.tune_delta_score_threshold != null && (typeof cfg.tune_delta_score_threshold !== 'number' || !Number.isFinite(cfg.tune_delta_score_threshold))) errors.push('`tune_delta_score_threshold` must be a number.');
     if (cfg.tune_ui_note_parts != null && (typeof cfg.tune_ui_note_parts !== 'number' || !Number.isFinite(cfg.tune_ui_note_parts))) errors.push('`tune_ui_note_parts` must be a number.');
+    if (cfg.tune_emotion_extra != null && (typeof cfg.tune_emotion_extra !== 'object' || Array.isArray(cfg.tune_emotion_extra))) errors.push('`tune_emotion_extra` must be an object mapping tone -> string[].');
+    if (cfg.tune_scene_location_place_heads != null && !Array.isArray(cfg.tune_scene_location_place_heads)) errors.push('`tune_scene_location_place_heads` must be an array of strings.');
+    if (cfg.tune_scene_location_stopwords != null && !Array.isArray(cfg.tune_scene_location_stopwords)) errors.push('`tune_scene_location_stopwords` must be an array of strings.');
 
     for (const k of [
         'note_scene_summary', 'note_emotion_delta', 'note_phase', 'note_proximity', 'note_consent',

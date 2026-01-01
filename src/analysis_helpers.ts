@@ -12,12 +12,36 @@ export type MemoryScar = {event: string; text: string; at: number};
 export type PhaseHistoryEntry = {phase: RelationshipPhase; at: number};
 export type ProximityHistoryEntry = {state: Proximity; at: number};
 
+export type EmotionTuning = {
+    extraTerms?: Record<string, string[]> | null;
+};
+
+export type SceneTuning = {
+    locationPlaceHeads?: string[] | null;
+    locationStopwords?: string[] | null;
+};
+
 function countMatches(text: string, re: RegExp): number {
     const m = text.match(re);
     return m ? m.length : 0;
 }
 
 type WeightedHit = {label: string; weight: number};
+
+function escapeRegExp(s: string): string {
+    return (s || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function compileLooseTermsRegex(terms: string[] | null | undefined): RegExp | null {
+    if (!Array.isArray(terms) || terms.length === 0) return null;
+    const cleaned = Array.from(new Set(terms.map((t) => String(t || "").trim()).filter(Boolean))).slice(0, 80);
+    if (cleaned.length === 0) return null;
+    const parts = cleaned.map((t) => {
+        const esc = escapeRegExp(t).replace(/\s+/g, "\\s+");
+        return /\s/.test(t) ? esc : `\\b${esc}\\b`;
+    });
+    return new RegExp(`(?:${parts.join("|")})`, "i");
+}
 
 function stripQuotedDialogue(text: string): string {
     if (!text) return "";
@@ -101,7 +125,7 @@ function extractIntensity(text: string): EmotionIntensity {
     return "low";
 }
 
-export function scoreEmotionSnapshot(text: string): {
+export function scoreEmotionSnapshot(text: string, tuning?: EmotionTuning): {
     snapshot: EmotionSnapshot;
     toneScores: Array<{tone: string; score: number; reasons: WeightedHit[]}>;
 } {
@@ -111,11 +135,26 @@ export function scoreEmotionSnapshot(text: string): {
     const t = text;
     const intensity = extractIntensity(t);
 
+    const extraTermsByTone = tuning?.extraTerms || null;
+    const extraCache = new Map<string, RegExp | null>();
+    const getExtraRegex = (tone: string): RegExp | null => {
+        if (extraCache.has(tone)) return extraCache.get(tone) ?? null;
+        const re = compileLooseTermsRegex(extraTermsByTone && (extraTermsByTone as any)[tone]);
+        extraCache.set(tone, re);
+        return re;
+    };
+
     const toneScore = (tone: string, parts: Array<{label: string; re: RegExp; weight: number}>) => {
         const reasons: WeightedHit[] = [];
         let score = 0;
         for (const p of parts) {
             const hit = scoreRegexWithNegation(t, p.re, p.weight, p.label);
+            score += hit.score;
+            if (hit.reasons.length) reasons.push(...hit.reasons);
+        }
+        const extraRe = getExtraRegex(tone);
+        if (extraRe) {
+            const hit = scoreRegexWithNegation(t, extraRe, 2, "extra_terms");
             score += hit.score;
             if (hit.reasons.length) reasons.push(...hit.reasons);
         }
@@ -202,8 +241,8 @@ export function scoreEmotionSnapshot(text: string): {
     return {snapshot: {tone, intensity: adjustedIntensity}, toneScores};
 }
 
-export function extractEmotionSnapshot(text: string): EmotionSnapshot {
-    return scoreEmotionSnapshot(text).snapshot;
+export function extractEmotionSnapshot(text: string, tuning?: EmotionTuning): EmotionSnapshot {
+    return scoreEmotionSnapshot(text, tuning).snapshot;
 }
 
 export function evaluateEmotionalDelta(current: EmotionSnapshot, recent: EmotionSnapshot[], content?: string) {
@@ -680,74 +719,233 @@ function resolveMatchingBeats(beats: UnresolvedBeat[], narrative: string, now: n
     return {unresolved, resolved};
 }
 
-export function updateSceneFromMessage(prev: SceneState | null | undefined, content: string, snapshot: EmotionSnapshot): SceneState {
+const DEFAULT_LOCATION_PLACE_HEADS = [
+    "apartment",
+    "attic",
+    "backyard",
+    "balcony",
+    "bar",
+    "basement",
+    "bathroom",
+    "beach",
+    "bed",
+    "bedroom",
+    "booth",
+    "bridge",
+    "bus",
+    "cabin",
+    "cafe",
+    "car",
+    "chapel",
+    "church",
+    "cinema",
+    "clinic",
+    "closet",
+    "coffee shop",
+    "counter",
+    "courtyard",
+    "diner",
+    "dining room",
+    "dock",
+    "door",
+    "doorway",
+    "driveway",
+    "elevator",
+    "entrance",
+    "farm",
+    "field",
+    "fireplace",
+    "forest",
+    "front yard",
+    "gallery",
+    "garage",
+    "garden",
+    "gym",
+    "hall",
+    "hallway",
+    "home",
+    "hospital",
+    "hotel",
+    "house",
+    "inn",
+    "kitchen",
+    "lake",
+    "library",
+    "lobby",
+    "market",
+    "museum",
+    "office",
+    "park",
+    "path",
+    "pier",
+    "place",
+    "platform",
+    "porch",
+    "pub",
+    "restaurant",
+    "restroom",
+    "river",
+    "road",
+    "rooftop",
+    "room",
+    "school",
+    "shore",
+    "shop",
+    "sidewalk",
+    "sofa",
+    "station",
+    "stairs",
+    "stairwell",
+    "store",
+    "street",
+    "studio",
+    "table",
+    "taxi",
+    "temple",
+    "terminal",
+    "theater",
+    "trail",
+    "train",
+    "yard",
+    "window",
+    "woods",
+];
+
+const DEFAULT_LOCATION_STOPWORDS = [
+    "end",
+    "beginning",
+    "middle",
+    "moment",
+    "meantime",
+    "world",
+    "way",
+    "time",
+    "air",
+    "silence",
+    "distance",
+    "space",
+    "warmth",
+    "tension",
+    "shadow",
+    "darkness",
+    "lightness",
+    "morning",
+    "afternoon",
+    "evening",
+    "night",
+    "dark",
+    "light",
+    // Body/face parts (common false positives like "in his eyes")
+    "arms",
+    "hands",
+    "lap",
+    "eyes",
+    "gaze",
+    "voice",
+    "breath",
+    "chest",
+    "heart",
+    "mind",
+    "head",
+    "face",
+    "lips",
+    "mouth",
+    "throat",
+    "skin",
+    "hair",
+    "cheeks",
+];
+
+function compileAlternationPattern(terms: string[]): string | null {
+    const cleaned = Array.from(new Set((terms || []).map((t) => String(t || "").trim()).filter(Boolean))).slice(0, 250);
+    if (cleaned.length === 0) return null;
+    return cleaned.map((t) => escapeRegExp(t).replace(/\s+/g, "\\s+")).join("|");
+}
+
+export function updateSceneFromMessage(
+    prev: SceneState | null | undefined,
+    content: string,
+    snapshot: EmotionSnapshot,
+    tuning?: SceneTuning,
+): SceneState {
     const now = Date.now();
     const scene: SceneState = Object.assign({}, prev || {});
     const t = content;
     const narrative = stripQuotedDialogue(t);
-    const locMatch = narrative.match(/\b(?:at|in|inside|into|on|by)\s+(?:the|a|an|my|your|his|her|their)\s+([A-Za-z0-9'’\- ]{3,60})\b/i);
-    if (locMatch) {
-        let candidate = locMatch[1].trim();
-        // If the captured phrase includes a verb ("the air feels tense"), trim to the noun phrase head.
-        const verbish = /\b(?:feels?|seems?|looks?|sounds?|is|are|was|were|become(?:s)?|remain(?:s)?|lingers?)\b/i.exec(candidate);
-        if (verbish && typeof verbish.index === "number" && verbish.index > 0) {
-            candidate = candidate.slice(0, verbish.index).trim();
-        }
 
-        const normalized = candidate.toLowerCase().replace(/\s+/g, " ").trim();
-        const head = (normalized.split(" ").filter(Boolean).slice(-1)[0] || normalized).trim();
-        const stop = new Set([
-            "end",
-            "beginning",
-            "middle",
-            "moment",
-            "meantime",
-            "world",
-            "way",
-            "time",
-            "air",
-            "silence",
-            "distance",
-            "space",
-            "warmth",
-            "tension",
-            "shadow",
-            "darkness",
-            "lightness",
-            "arms",
-            "hands",
-            "lap",
-            "eyes",
-            "gaze",
-            "voice",
-            "breath",
-            "chest",
-            "heart",
-            "mind",
-            "head",
-            "face",
-            "lips",
-            "mouth",
-            "throat",
-            "skin",
-            "hair",
-            "cheeks",
-            "morning",
-            "afternoon",
-            "evening",
-            "night",
-            "dark",
-            "light",
-        ]);
-        if (
-            normalized.length > 0 &&
-            !stop.has(normalized) &&
-            !stop.has(head) &&
-            !/^(end|the end|the beginning|the moment|the meantime)$/.test(normalized)
-        ) {
-            scene.location = candidate;
+    const placeHeads = new Set<string>(DEFAULT_LOCATION_PLACE_HEADS);
+    for (const p of (tuning?.locationPlaceHeads || [])) {
+        const s = String(p || "").toLowerCase().replace(/\s+/g, " ").trim();
+        if (s) placeHeads.add(s);
+    }
+    const stopwords = new Set<string>(DEFAULT_LOCATION_STOPWORDS);
+    for (const w of (tuning?.locationStopwords || [])) {
+        const s = String(w || "").toLowerCase().replace(/\s+/g, " ").trim();
+        if (s) stopwords.add(s);
+    }
+
+    const preps = "(?:at|in|inside|into|on|by|near|beside|behind|under|over|outside|within|across|around|through)";
+    const candidates: string[] = [];
+    const addCandidate = (c: string) => {
+        const s = String(c || "").trim();
+        if (!s) return;
+        candidates.push(s);
+    };
+
+    const trimVerbish = (raw: string): string => {
+        let c = String(raw || "").trim();
+        if (!c) return c;
+        const verbish = /\b(?:feels?|seems?|looks?|sounds?|is|are|was|were|become(?:s)?|remain(?:s)?|lingers?)\b/i.exec(c);
+        if (verbish && typeof verbish.index === "number" && verbish.index > 0) c = c.slice(0, verbish.index).trim();
+        return c;
+    };
+
+    const articleLocRe = new RegExp(`\\b${preps}\\s+(?:the|a|an|my|your|his|her|their)\\s+([A-Za-z0-9'’\\- ]{2,60})\\b`, "ig");
+    for (const m of narrative.matchAll(articleLocRe)) {
+        addCandidate(trimVerbish(m[1] || ""));
+    }
+
+    const possessiveLocRe = new RegExp(`\\b(?:at|in|inside|into|on|by)\\s+([A-Za-z][A-Za-z'’\\-]+(?:'s|’s)\\s+[A-Za-z0-9'’\\- ]{2,60})\\b`, "ig");
+    for (const m of narrative.matchAll(possessiveLocRe)) {
+        addCandidate(trimVerbish(m[1] || ""));
+    }
+
+    // Safe no-article matching for known place heads (including user-tuned ones).
+    const placePattern = compileAlternationPattern(Array.from(placeHeads));
+    if (placePattern) {
+        const exactPlaceRe = new RegExp(`\\b${preps}\\s+(?:the\\s+|a\\s+|an\\s+)?(${placePattern})\\b`, "ig");
+        for (const m of narrative.matchAll(exactPlaceRe)) {
+            addCandidate(m[1] || "");
         }
     }
+
+    const scoreCandidate = (raw: string): {candidate: string; score: number} => {
+        const candidate = (raw || "").trim();
+        const normalized = candidate.toLowerCase().replace(/\s+/g, " ").trim();
+        const head = (normalized.split(" ").filter(Boolean).slice(-1)[0] || normalized).trim();
+        if (!normalized) return {candidate, score: -999};
+        if (stopwords.has(normalized) || stopwords.has(head)) return {candidate, score: -999};
+        if (/^(end|the end|the beginning|the moment|the meantime)$/.test(normalized)) return {candidate, score: -999};
+
+        let score = 0;
+        if (placeHeads.has(normalized)) score += 4;
+        if (placeHeads.has(head)) score += 3;
+        if (normalized.includes("'s ") || normalized.includes("’s ")) score += 1;
+        const wordCount = normalized.split(" ").filter(Boolean).length;
+        if (wordCount <= 4) score += 1;
+        if (candidate.length <= 32) score += 1;
+        return {candidate, score};
+    };
+
+    let best: {candidate: string; score: number} | null = null;
+    for (const c of candidates) {
+        const scored = scoreCandidate(c);
+        if (!best || scored.score > best.score) best = scored;
+    }
+    if (best && best.score >= 3) {
+        scene.location = best.candidate;
+    }
+
     // Explicit home/place phrases without articles.
     if (!scene.location) {
         const home = /\b(at home|at (?:his|her|their|my|your) place)\b/i.exec(narrative);
